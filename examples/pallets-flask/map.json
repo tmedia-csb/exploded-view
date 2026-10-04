@@ -1,0 +1,1567 @@
+{
+ "title": "Flask",
+ "summary": "Flask is a small Python web framework: a developer registers view functions on an application object, and a WSGI server hands each HTTP request to it. For every request Flask pushes a context, runs the matching view, turns its return value into a response, and tears the context down again.",
+ "root": {
+  "direction": "RIGHT",
+  "nodes": [
+   {
+    "id": "developer",
+    "label": "App developer",
+    "kind": "person",
+    "summary": "Writes an application: creates the Flask object, registers routes and blueprints, and sets config."
+   },
+   {
+    "id": "server",
+    "label": "WSGI server",
+    "kind": "external",
+    "summary": "Werkzeug's dev server or a production server (Gunicorn, uWSGI) that calls the app once per request.",
+    "details": "Flask itself never listens on a socket. `app.run()` and `flask run` start Werkzeug's development server; production deployments point any WSGI server at the app object."
+   },
+   {
+    "id": "app-core",
+    "label": "Application object",
+    "kind": "module",
+    "summary": "The Flask class: holds routes, blueprints, config, and hooks, and is the WSGI callable a server invokes.",
+    "details": "- `Flask` (app.py) adds the request-handling half on top of `App` (sansio/app.py), which has no I/O so other frameworks such as Quart can reuse it.\n- `Scaffold` is the shared base for apps and blueprints: route decorators, before/after hooks, error handlers.\n- Blueprints record their setup and replay it when registered on an app.\n- `Config` is a dict with loaders for files, objects, and environment variables.",
+    "files": [
+     "src/flask/app.py",
+     "src/flask/sansio/app.py",
+     "src/flask/sansio/scaffold.py",
+     "src/flask/blueprints.py",
+     "src/flask/config.py",
+     "src/flask/views.py"
+    ],
+    "children": {
+     "direction": "RIGHT",
+     "nodes": [
+      {
+       "id": "flask-app",
+       "label": "Flask class",
+       "kind": "module",
+       "summary": "The public Flask object: sets up the app, exposes run() and test_client(), and is the WSGI callable a server invokes.",
+       "details": "- `Flask(__name__)` works out the app's root path for templates and static files.\n- Adds the I/O-aware pieces on top of the shared `App` base: `run()` (starts Werkzeug's dev server), `test_client()`, `wsgi_app`/`__call__`.\n- Re-exported from `flask/__init__.py` as the thing a developer imports.",
+       "files": [
+        "src/flask/app.py",
+        "src/flask/__init__.py"
+       ]
+      },
+      {
+       "id": "request-dispatch",
+       "label": "Request dispatch",
+       "kind": "process",
+       "summary": "The per-request pipeline: preprocess, match and call the view, handle any exception, finalize the response.",
+       "details": "- `full_dispatch_request` runs before_request hooks, then `dispatch_request` calls the matched view.\n- Exceptions go through `handle_user_exception`, which looks up a registered error handler before falling back to a generic 500 in `handle_exception`.\n- `finalize_request`/`make_response` turn the view's return value into a real Response object.",
+       "files": [
+        "src/flask/app.py"
+       ]
+      },
+      {
+       "id": "sansio-core",
+       "label": "App + Scaffold base",
+       "kind": "module",
+       "summary": "The I/O-free foundation Flask extends: the URL map, config, and the lists of hooks and error handlers.",
+       "details": "- `sansio/app.py`'s `App` holds the Werkzeug `Map`, the `Config` instance, and app-level hook/error-handler storage.\n- `sansio/scaffold.py`'s `Scaffold` is shared by both `App` and `Blueprint`: `route`, `add_url_rule`, `before_request`, `after_request`, `teardown_request`, `errorhandler`.\n- Has no socket or WSGI code, so other frameworks (the README names Quart) can reuse it.",
+       "files": [
+        "src/flask/sansio/app.py",
+        "src/flask/sansio/scaffold.py",
+        "src/flask/sansio/README.md"
+       ]
+      },
+      {
+       "id": "blueprints",
+       "label": "Blueprint",
+       "kind": "module",
+       "summary": "Records routes and hooks under a name/prefix, then replays them onto an app when registered.",
+       "details": "- `sansio/blueprints.py`'s `Blueprint` (itself a `Scaffold`) queues up `route`/`before_request`/etc. calls instead of applying them immediately.\n- `register()` (via `BlueprintSetupState`) replays each queued call onto the app, with the blueprint's url_prefix and name applied.\n- `flask/blueprints.py`'s `Blueprint` just adds the I/O-aware pieces back on top of the sansio version, mirroring the Flask/App split.",
+       "files": [
+        "src/flask/blueprints.py",
+        "src/flask/sansio/blueprints.py"
+       ]
+      },
+      {
+       "id": "config",
+       "label": "Config",
+       "kind": "module",
+       "summary": "A dict subclass holding app settings, with loaders for Python objects, files, and environment variables.",
+       "details": "- `from_object`, `from_pyfile`, `from_envvar`, `from_prefixed_env`, `from_mapping` are the ways a developer feeds in settings.\n- Created once per app and hung on `App.config`; read by both core Flask code and extensions.",
+       "files": [
+        "src/flask/config.py"
+       ]
+      },
+      {
+       "id": "views",
+       "label": "Class-based views",
+       "kind": "module",
+       "summary": "View and MethodView: lets a developer write a request handler as a class instead of a function.",
+       "details": "- `View.as_view()` wraps a class into the plain view function `add_url_rule` expects.\n- `MethodView` dispatches to a same-named method (`get`, `post`, ...) based on the request method.",
+       "files": [
+        "src/flask/views.py"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "flask-app",
+       "to": "sansio-core",
+       "label": "extends the I/O-free base"
+      },
+      {
+       "from": "flask-app",
+       "to": "request-dispatch",
+       "label": "wsgi_app drives dispatch"
+      },
+      {
+       "from": "request-dispatch",
+       "to": "sansio-core",
+       "label": "reads routes and hooks"
+      },
+      {
+       "from": "blueprints",
+       "to": "sansio-core",
+       "label": "replays recorded setup"
+      },
+      {
+       "from": "sansio-core",
+       "to": "config",
+       "label": "owns app.config"
+      },
+      {
+       "from": "views",
+       "to": "sansio-core",
+       "label": "as_view() registers a rule"
+      },
+      {
+       "from": "../server",
+       "to": "flask-app",
+       "label": "calls per request"
+      },
+      {
+       "from": "../developer",
+       "to": "flask-app",
+       "label": "creates Flask(__name__)"
+      },
+      {
+       "from": "../developer",
+       "to": "blueprints",
+       "label": "defines and registers"
+      },
+      {
+       "from": "../developer",
+       "to": "views",
+       "label": "writes class-based views"
+      },
+      {
+       "from": "request-dispatch",
+       "to": "../request-cycle",
+       "label": "pushes/pops request context"
+      },
+      {
+       "from": "request-dispatch",
+       "to": "../rendering",
+       "label": "hands off view's return value"
+      },
+      {
+       "from": "flask-app",
+       "to": "../cli",
+       "label": "found by flask run"
+      },
+      {
+       "from": "flask-app",
+       "to": "../test-client",
+       "label": "wrapped by test_client()"
+      },
+      {
+       "from": "flask-app",
+       "to": "../libraries",
+       "label": "builds on Werkzeug routing"
+      }
+     ],
+     "flows": [
+      {
+       "id": "build-and-register",
+       "name": "What happens when the developer builds the app",
+       "summary": "Setup code that runs once, before any request arrives.",
+       "steps": [
+        {
+         "from": "../developer",
+         "to": "flask-app",
+         "text": "Flask(__name__) creates the app and works out its template/static root paths."
+        },
+        {
+         "from": "flask-app",
+         "to": "sansio-core",
+         "text": "The constructor sets up Config, the URL map, and the hook/error-handler lists on the shared base."
+        },
+        {
+         "from": "../developer",
+         "to": "views",
+         "text": "Class-based views are turned into plain view functions with View.as_view()."
+        },
+        {
+         "from": "views",
+         "to": "sansio-core",
+         "text": "add_url_rule registers the resulting view function and endpoint on the app's URL map."
+        },
+        {
+         "from": "blueprints",
+         "to": "sansio-core",
+         "text": "When the blueprint is registered, it replays every route and hook it had queued onto the app."
+        }
+       ]
+      },
+      {
+       "id": "request-pipeline",
+       "name": "What happens inside the app object for one request",
+       "summary": "The dispatch path from the WSGI call to a finished response.",
+       "steps": [
+        {
+         "from": "../server",
+         "to": "flask-app",
+         "text": "__call__ delegates to wsgi_app with the WSGI environ."
+        },
+        {
+         "from": "flask-app",
+         "to": "request-dispatch",
+         "text": "wsgi_app pushes a request context, then calls full_dispatch_request."
+        },
+        {
+         "node": "request-dispatch",
+         "text": "before_request hooks run, the URL is matched, and the matched view function is called."
+        },
+        {
+         "from": "request-dispatch",
+         "to": "sansio-core",
+         "text": "Matching and hook order come from the Rule map and hook lists App/Scaffold maintain."
+        },
+        {
+         "from": "request-dispatch",
+         "to": "../rendering",
+         "text": "The view's return value is turned into a Response (a rendered template or JSON)."
+        },
+        {
+         "from": "flask-app",
+         "to": "../request-cycle",
+         "text": "after_request hooks run, the session is saved, and the context is popped."
+        }
+       ]
+      },
+      {
+       "id": "handle-error",
+       "name": "What happens when a view raises",
+       "summary": "How an exception inside a view becomes a response.",
+       "steps": [
+        {
+         "node": "request-dispatch",
+         "text": "full_dispatch_request catches the exception and calls handle_user_exception."
+        },
+        {
+         "from": "request-dispatch",
+         "to": "sansio-core",
+         "text": "handle_user_exception looks up a registered error handler by exception type, checking the blueprint's handlers before the app's."
+        },
+        {
+         "node": "request-dispatch",
+         "text": "If nothing matches, handle_exception converts an unhandled exception into a generic 500 response."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "request-cycle",
+    "label": "Request contexts",
+    "kind": "process",
+    "summary": "Pushes a context per request so `request`, `session`, `g`, and `current_app` work, then tears it down.",
+    "details": "- In this version one `AppContext` carries both app and request state; `request_context()` returns an AppContext.\n- `globals.py` exposes context-local proxies backed by a `ContextVar`.\n- Sessions load from and save to a signed cookie by default (`SecureCookieSessionInterface`).\n- Signals (Blinker) fire at request start, finish, teardown, and on exceptions.",
+    "files": [
+     "src/flask/ctx.py",
+     "src/flask/globals.py",
+     "src/flask/wrappers.py",
+     "src/flask/sessions.py",
+     "src/flask/signals.py",
+     "src/flask/helpers.py"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "context-push-pop",
+       "label": "Context push/pop",
+       "kind": "process",
+       "summary": "Pushes an AppContext per request or CLI command, opens the session, matches the route, and tears down on pop.",
+       "details": "- Owns the active app, request, session, and g for the duration of a context.\n- push() sets a contextvar, opens the session, then matches the URL against the app's routes.\n- pop() runs teardown_request and teardown_appcontext functions, saves the session, then clears the contextvar.\n- Supports nested pushes (a push count) so streaming or testing can re-enter without double teardown.\n- after_this_request() registers a cleanup callback for just the current request.\n- copy_current_request_context() lets a background task run inside a copy of the request context that spawned it.",
+       "files": [
+        "src/flask/ctx.py"
+       ]
+      },
+      {
+       "id": "context-proxies",
+       "label": "Context proxies",
+       "kind": "module",
+       "summary": "The request, session, g, current_app, and app_ctx objects imported everywhere, as thin proxies to the active context.",
+       "details": "- Each proxy is a Werkzeug LocalProxy bound to one ContextVar holding the current AppContext.\n- Raises a clear RuntimeError (\"working outside of application/request context\") when nothing is pushed.",
+       "files": [
+        "src/flask/globals.py"
+       ]
+      },
+      {
+       "id": "request-response-objects",
+       "label": "Request & Response",
+       "kind": "module",
+       "summary": "Flask's Request and Response classes, extending Werkzeug's with app-config-aware limits and endpoint/blueprint lookups.",
+       "details": "- Request adds url_rule, view_args, routing_exception, and config-driven size limits (max content length, form memory, form parts).\n- In debug mode, patches request.files to raise a friendlier error when a form's enctype is wrong.\n- Response defaults to text/html and reads max_cookie_size from app config.",
+       "files": [
+        "src/flask/wrappers.py"
+       ]
+      },
+      {
+       "id": "session-cookie-signing",
+       "label": "Session cookie signing",
+       "kind": "module",
+       "summary": "Loads and saves the session as a signed cookie, so logins and flashed messages survive between requests.",
+       "details": "- SessionInterface defines open_session/save_session; SecureCookieSessionInterface is the default, signing a JSON payload with ItsDangerous.\n- Decides whether to set, refresh, or delete the Set-Cookie header based on whether the session was modified or accessed.\n- NullSession is a read-only stand-in used when no secret key is configured.",
+       "files": [
+        "src/flask/sessions.py"
+       ]
+      },
+      {
+       "id": "context-signals",
+       "label": "Context signals",
+       "kind": "module",
+       "summary": "Blinker signals fired as a context is pushed, popped, or a message is flashed, for extensions to hook into.",
+       "details": "- appcontext_pushed and appcontext_popped fire around AppContext.push()/pop().\n- request_started, request_finished, request_tearing_down, got_request_exception, template_rendered, and message_flashed are sent elsewhere in the app using the same namespace.",
+       "files": [
+        "src/flask/signals.py"
+       ]
+      },
+      {
+       "id": "request-utility-helpers",
+       "label": "Request-scoped helpers",
+       "kind": "module",
+       "summary": "flash(), url_for(), redirect(), abort(), send_file(), and stream_with_context() reach into the active context from a view.",
+       "details": "- flash() and get_flashed_messages() store and retrieve messages in the session, and fire message_flashed.\n- url_for(), redirect(), and abort() delegate to the current app so overrides are respected.\n- stream_with_context() keeps request/session/g alive for a generator that outlives the normal context.\n- send_file()/send_from_directory() pull defaults (root path, max age, send_file settings) from the active app and request.",
+       "files": [
+        "src/flask/helpers.py"
+       ]
+      },
+      {
+       "id": "debug-diagnostics",
+       "label": "Debug diagnostics",
+       "kind": "module",
+       "summary": "Friendlier error messages in debug mode for missing file uploads, bad routing redirects, and template-loader misses.",
+       "details": "- DebugFilesKeyError explains a likely multipart/form-data mistake when request.files is missing an expected key.\n- FormDataRoutingRedirect warns when a redirect would silently drop form data on a non-GET request.\n- explain_template_loading_attempts() logs every loader tried when a template can't be found.",
+       "files": [
+        "src/flask/debughelpers.py"
+       ]
+      },
+      {
+       "id": "error-logging",
+       "label": "Error logging",
+       "kind": "module",
+       "summary": "Sets up the app's logger and picks where error output goes: the WSGI error stream during a request, stderr otherwise.",
+       "details": "- create_logger() configures app.logger, defaulting to DEBUG level when app.debug is on.\n- wsgi_errors_stream routes log output to environ['wsgi.errors'] when a request is active, or sys.stderr when it isn't.",
+       "files": [
+        "src/flask/logging.py"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "context-proxies",
+       "to": "context-push-pop",
+       "label": "resolves to the active context",
+       "kind": "data"
+      },
+      {
+       "from": "context-push-pop",
+       "to": "session-cookie-signing",
+       "label": "opens session on push",
+       "kind": "data"
+      },
+      {
+       "from": "session-cookie-signing",
+       "to": "request-response-objects",
+       "label": "reads/writes the session cookie",
+       "kind": "data"
+      },
+      {
+       "from": "context-push-pop",
+       "to": "context-signals",
+       "label": "fires push/pop signals",
+       "kind": "async"
+      },
+      {
+       "from": "request-utility-helpers",
+       "to": "context-proxies",
+       "label": "reads request/session/g",
+       "kind": "data"
+      },
+      {
+       "from": "request-utility-helpers",
+       "to": "context-signals",
+       "label": "fires message-flashed",
+       "kind": "async"
+      },
+      {
+       "from": "request-response-objects",
+       "to": "context-proxies",
+       "label": "reads current_app for config limits",
+       "kind": "data"
+      },
+      {
+       "from": "debug-diagnostics",
+       "to": "request-response-objects",
+       "label": "patches request.files in debug",
+       "kind": ""
+      },
+      {
+       "from": "error-logging",
+       "to": "context-proxies",
+       "label": "reads request for error stream",
+       "kind": "data"
+      },
+      {
+       "from": "context-push-pop",
+       "to": "../app-core",
+       "label": "pushed/popped each WSGI call",
+       "kind": ""
+      },
+      {
+       "from": "../test-client",
+       "to": "context-push-pop",
+       "label": "builds in-memory request contexts",
+       "kind": ""
+      },
+      {
+       "from": "../cli",
+       "to": "context-push-pop",
+       "label": "pushes context for CLI commands",
+       "kind": ""
+      },
+      {
+       "from": "request-response-objects",
+       "to": "../libraries",
+       "label": "extends Werkzeug request/response",
+       "kind": ""
+      },
+      {
+       "from": "session-cookie-signing",
+       "to": "../libraries",
+       "label": "signs cookies with ItsDangerous",
+       "kind": "data"
+      },
+      {
+       "from": "context-signals",
+       "to": "../libraries",
+       "label": "built on Blinker signals",
+       "kind": ""
+      },
+      {
+       "from": "context-proxies",
+       "to": "../rendering",
+       "label": "exposes request/session to templates",
+       "kind": "data"
+      },
+      {
+       "from": "debug-diagnostics",
+       "to": "../rendering",
+       "label": "explains template loader failures",
+       "kind": ""
+      }
+     ],
+     "flows": [
+      {
+       "id": "request-context-lifecycle",
+       "name": "What happens when a request is handled",
+       "summary": "A context is pushed before the view runs and popped, with teardown, after the response is sent.",
+       "steps": [
+        {
+         "node": "context-push-pop",
+         "text": "Flask builds an AppContext from the WSGI environ and pushes it, setting the active context."
+        },
+        {
+         "from": "context-push-pop",
+         "to": "context-proxies",
+         "text": "The pushed context becomes what request, session, g, and current_app resolve to."
+        },
+        {
+         "from": "context-push-pop",
+         "to": "session-cookie-signing",
+         "text": "Pushing opens the session, verifying the signed cookie from the request."
+        },
+        {
+         "node": "context-push-pop",
+         "text": "Flask matches the URL against the app's routes while the context is active."
+        },
+        {
+         "from": "context-push-pop",
+         "to": "../app-core",
+         "text": "Control returns to the app to dispatch the matched view and build a response."
+        },
+        {
+         "from": "context-push-pop",
+         "to": "context-signals",
+         "text": "Push and pop each fire a signal so extensions can hook in."
+        },
+        {
+         "node": "context-push-pop",
+         "text": "After the response is ready, the context is popped: teardown functions run, the session is saved to the response, then the context is cleared."
+        }
+       ]
+      },
+      {
+       "id": "helper-functions-reach-into-context",
+       "name": "What happens when a view calls a context-aware helper",
+       "summary": "flash(), url_for(), redirect(), and abort() all reach into the active context via the proxies.",
+       "steps": [
+        {
+         "node": "request-utility-helpers",
+         "text": "A view calls flash(), url_for(), redirect(), or abort()."
+        },
+        {
+         "from": "request-utility-helpers",
+         "to": "context-proxies",
+         "text": "The helper reads the active app and session through the proxies rather than taking them as arguments."
+        },
+        {
+         "from": "request-utility-helpers",
+         "to": "context-signals",
+         "text": "flash() also fires the message_flashed signal."
+        },
+        {
+         "from": "request-utility-helpers",
+         "to": "../app-core",
+         "text": "url_for(), redirect(), and abort() delegate to methods on the Flask app object itself."
+        }
+       ]
+      },
+      {
+       "id": "debug-mode-diagnostics",
+       "name": "What happens when something goes wrong in debug mode",
+       "summary": "Debug mode swaps in richer error objects and messages for template and form mistakes.",
+       "steps": [
+        {
+         "node": "request-response-objects",
+         "text": "When form parsing finds no files but the content type isn't multipart, the request flags a likely enctype mistake."
+        },
+        {
+         "from": "request-response-objects",
+         "to": "debug-diagnostics",
+         "text": "In debug mode, the request patches request.files to raise a descriptive DebugFilesKeyError instead of a plain KeyError."
+        },
+        {
+         "from": "debug-diagnostics",
+         "to": "../rendering",
+         "text": "Template loader failures get a detailed trace of every loader tried, logged for the developer."
+        },
+        {
+         "from": "debug-diagnostics",
+         "to": "error-logging",
+         "text": "Diagnostic messages are written through the app's logger."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "rendering",
+    "label": "Templates and JSON",
+    "kind": "module",
+    "summary": "Renders Jinja templates and serialises JSON responses, including tagged JSON for session cookies.",
+    "files": [
+     "src/flask/templating.py",
+     "src/flask/json/provider.py",
+     "src/flask/json/tag.py"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "jinja-loader",
+       "label": "Jinja Loader",
+       "kind": "module",
+       "summary": "Builds Flask's Jinja Environment and finds templates across the app and its blueprints.",
+       "details": "- DispatchingJinjaLoader checks the app's own loader first, then each blueprint's loader in turn.\n- EXPLAIN_TEMPLATE_LOADING switches on verbose lookup logging for debugging missing templates.\n- list_templates collects every template name visible app-wide.",
+       "files": [
+        "src/flask/templating.py"
+       ]
+      },
+      {
+       "id": "render-functions",
+       "label": "Render Functions",
+       "kind": "module",
+       "summary": "Public render_template/stream_template helpers that fetch a template and render it with the current context.",
+       "details": "- Merges g, request, and user context processors into the template context before rendering.\n- Sends before_render_template and template_rendered signals around each render.\n- Streaming variants yield chunks instead of returning one string.",
+       "files": [
+        "src/flask/templating.py"
+       ]
+      },
+      {
+       "id": "json-functions",
+       "label": "JSON Functions",
+       "kind": "module",
+       "summary": "Module-level dumps/loads/jsonify functions that defer to the active app's JSON provider.",
+       "details": "- Falls back to the stdlib json module when there is no app context.\n- jsonify always needs an app context since it builds a Response object.",
+       "files": [
+        "src/flask/json/__init__.py"
+       ]
+      },
+      {
+       "id": "json-provider",
+       "label": "JSON Provider",
+       "kind": "module",
+       "summary": "JSONProvider base class and the default implementation that serializes values and builds JSON responses.",
+       "details": "- DefaultJSONProvider handles dates, UUIDs, Decimal, dataclasses, and Markup objects.\n- Sorts keys and escapes non-ASCII by default; pretty-prints when the app is in debug mode.\n- Apps can swap in a different JSON library by subclassing JSONProvider.",
+       "files": [
+        "src/flask/json/provider.py"
+       ]
+      },
+      {
+       "id": "tagged-json",
+       "label": "Tagged JSON",
+       "kind": "module",
+       "summary": "Lossless tag-based serializer used to pack dicts, tuples, bytes, dates, and Markup into session cookies.",
+       "details": "- Each extra type gets a short tag key so it round-trips exactly through plain JSON.\n- Extensible: an app can register additional tags for its own types.\n- Used as the intermediate serializer before ItsDangerous signs the cookie.",
+       "files": [
+        "src/flask/json/tag.py"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "render-functions",
+       "to": "jinja-loader",
+       "label": "loads template source"
+      },
+      {
+       "from": "jinja-loader",
+       "to": "../app-core",
+       "label": "reads app + blueprint loaders"
+      },
+      {
+       "from": "render-functions",
+       "to": "../request-cycle",
+       "label": "reads current app context"
+      },
+      {
+       "from": "render-functions",
+       "to": "../libraries",
+       "label": "fires render signals (Blinker)",
+       "kind": "async"
+      },
+      {
+       "from": "jinja-loader",
+       "to": "../libraries",
+       "label": "extends Jinja's Environment"
+      },
+      {
+       "from": "json-functions",
+       "to": "json-provider",
+       "label": "delegates to app's provider"
+      },
+      {
+       "from": "json-functions",
+       "to": "../app-core",
+       "label": "uses current_app.json"
+      },
+      {
+       "from": "json-provider",
+       "to": "../app-core",
+       "label": "builds app.response_class"
+      },
+      {
+       "from": "tagged-json",
+       "to": "json-functions",
+       "label": "dumps/loads via flask.json"
+      },
+      {
+       "from": "tagged-json",
+       "to": "../request-cycle",
+       "label": "serializes session cookie data",
+       "kind": "data"
+      },
+      {
+       "from": "tagged-json",
+       "to": "../libraries",
+       "label": "signs output via ItsDangerous"
+      }
+     ],
+     "flows": [
+      {
+       "id": "render-view-template",
+       "name": "What happens when a view renders a template",
+       "summary": "A view calls render_template; Flask finds the template via the loaders and renders it with signals.",
+       "steps": [
+        {
+         "from": "../app-core",
+         "to": "render-functions",
+         "text": "View function calls render_template(name, **context)"
+        },
+        {
+         "from": "render-functions",
+         "to": "jinja-loader",
+         "text": "Asks the environment's loader to find the template source"
+        },
+        {
+         "node": "render-functions",
+         "text": "Merges template context, renders with Jinja, sends before/after signals"
+        },
+        {
+         "from": "render-functions",
+         "to": "../libraries",
+         "text": "Fires the template_rendered signal via Blinker"
+        }
+       ]
+      },
+      {
+       "id": "jsonify-response",
+       "name": "What happens when a view returns JSON",
+       "summary": "jsonify, or an auto-converted dict/list, goes through the app's JSON provider to build a Response.",
+       "steps": [
+        {
+         "from": "../app-core",
+         "to": "json-functions",
+         "text": "View returns a dict/list, or calls jsonify() directly"
+        },
+        {
+         "from": "json-functions",
+         "to": "json-provider",
+         "text": "Delegates to current_app.json, the active provider"
+        },
+        {
+         "node": "json-provider",
+         "text": "Serializes with json.dumps and wraps it in a Response with the JSON mimetype"
+        }
+       ]
+      },
+      {
+       "id": "session-cookie-tagging",
+       "name": "What happens when session data is signed into a cookie",
+       "summary": "Non-JSON session values are tagged for a lossless round trip, then signed by ItsDangerous.",
+       "steps": [
+        {
+         "from": "../request-cycle",
+         "to": "tagged-json",
+         "text": "The session interface hands the session dict to TaggedJSONSerializer"
+        },
+        {
+         "from": "tagged-json",
+         "to": "json-functions",
+         "text": "Tags special types, then dumps the result via flask.json.dumps"
+        },
+        {
+         "from": "tagged-json",
+         "to": "../libraries",
+         "text": "ItsDangerous signs the compact JSON string into the cookie"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "cli",
+    "label": "flask command",
+    "kind": "entry",
+    "summary": "The `flask` command line: finds the app, runs the dev server, opens a shell, and hosts custom commands.",
+    "details": "`ScriptInfo` locates the app from `--app`, `FLASK_APP`, or a `wsgi.py`/`app.py` in the current folder. `FlaskGroup` builds on Click, and apps and blueprints can attach their own commands.",
+    "files": [
+     "src/flask/cli.py",
+     "src/flask/__main__.py"
+    ]
+   },
+   {
+    "id": "test-client",
+    "label": "Test client",
+    "kind": "module",
+    "summary": "Builds WSGI requests in memory so tests call the app without a server; includes a CLI runner.",
+    "files": [
+     "src/flask/testing.py"
+    ]
+   },
+   {
+    "id": "libraries",
+    "label": "Pallets libraries",
+    "kind": "external",
+    "summary": "Werkzeug (WSGI, routing, request objects), Jinja (templates), Click (CLI), Blinker (signals), ItsDangerous (signing).",
+    "files": [
+     "pyproject.toml"
+    ]
+   },
+   {
+    "id": "tests",
+    "label": "Test suite and CI",
+    "kind": "test",
+    "summary": "Pytest suite covering every module, plus GitHub Actions that run it and publish releases.",
+    "files": [
+     "tests/conftest.py",
+     "tests/test_basic.py",
+     ".github/workflows/tests.yaml",
+     ".github/workflows/publish.yaml"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "fixtures",
+       "label": "Test fixtures",
+       "kind": "module",
+       "summary": "Pytest fixtures that build a disposable Flask app, request/app contexts, and test client for every test.",
+       "details": "- `app`, `app_ctx`, `req_ctx`, `client` fixtures used by nearly every test module.\n- `leak_detector` fails a test if it left an app context pushed.\n- `test_apps` and `modules_tmp_path` fixtures juggle `sys.path` for CLI/import tests.",
+       "files": [
+        "tests/conftest.py"
+       ]
+      },
+      {
+       "id": "core-tests",
+       "label": "Core behavior tests",
+       "kind": "test",
+       "summary": "Unit tests for the Flask app object itself: config, contexts, subclassing, signals, and session interfaces.",
+       "files": [
+        "tests/test_basic.py",
+        "tests/test_appctx.py",
+        "tests/test_reqctx.py",
+        "tests/test_config.py",
+        "tests/test_instance_config.py",
+        "tests/test_session_interface.py",
+        "tests/test_signals.py",
+        "tests/test_subclassing.py"
+       ]
+      },
+      {
+       "id": "web-tests",
+       "label": "Blueprint & template tests",
+       "kind": "test",
+       "summary": "Tests for blueprints, view classes, URL converters, template rendering, JSON, async views, and error handlers.",
+       "files": [
+        "tests/test_blueprints.py",
+        "tests/test_views.py",
+        "tests/test_templating.py",
+        "tests/test_json.py",
+        "tests/test_json_tag.py",
+        "tests/test_user_error_handler.py",
+        "tests/test_converters.py",
+        "tests/test_async.py"
+       ]
+      },
+      {
+       "id": "cli-tests",
+       "label": "CLI tests",
+       "kind": "test",
+       "summary": "Tests for the flask command line, using small sample apps and helper/logging behavior.",
+       "files": [
+        "tests/test_cli.py",
+        "tests/test_helpers.py",
+        "tests/test_logging.py"
+       ]
+      },
+      {
+       "id": "client-tests",
+       "label": "Test client tests",
+       "kind": "test",
+       "summary": "Tests for the test client and request object that other test modules rely on.",
+       "files": [
+        "tests/test_testing.py",
+        "tests/test_request.py"
+       ]
+      },
+      {
+       "id": "fixture-apps",
+       "label": "Sample Flask apps",
+       "kind": "data",
+       "summary": "Small sample Flask apps, templates, and static files that other tests load and run against.",
+       "details": "- `test_apps/cliapp`, `blueprintapp`, `helloworld`, `subdomaintestmodule` are miniature apps the CLI and blueprint tests import or invoke.\n- `templates/` and `static/` hold Jinja templates and static assets rendered in template/config tests.",
+       "files": [
+        "tests/test_apps/",
+        "tests/static/",
+        "tests/templates/"
+       ]
+      },
+      {
+       "id": "type-checking",
+       "label": "Typing checks",
+       "kind": "test",
+       "summary": "Typing-only fixtures that mypy checks to confirm Flask's public API type hints are sound.",
+       "files": [
+        "tests/type_check/"
+       ]
+      },
+      {
+       "id": "ci-checks",
+       "label": "CI test matrix",
+       "kind": "config",
+       "summary": "GitHub Actions that run the pytest matrix, pre-commit linting, and zizmor's workflow security scan on every PR and push.",
+       "details": "- tests.yaml runs pytest across many Python versions/OSes plus a separate mypy typing job.\n- pre-commit.yaml re-runs the repo's lint hooks.\n- zizmor.yaml statically scans the workflow files themselves for security issues.",
+       "files": [
+        ".github/workflows/tests.yaml",
+        ".github/workflows/pre-commit.yaml",
+        ".github/workflows/zizmor.yaml"
+       ]
+      },
+      {
+       "id": "release-publish",
+       "label": "Release workflow",
+       "kind": "config",
+       "summary": "GitHub Action that builds, drafts a release for, and publishes a tagged version to PyPI.",
+       "details": "- Triggered only by pushing a git tag.\n- Builds the package with `uv build`, drafts a GitHub release with the artifacts, then publishes to PyPI using a trusted OIDC token (no stored password).",
+       "files": [
+        ".github/workflows/publish.yaml"
+       ]
+      },
+      {
+       "id": "issue-lock",
+       "label": "Issue auto-lock",
+       "kind": "schedule",
+       "summary": "Nightly cron job that locks closed issues, PRs, and discussions idle for two weeks.",
+       "files": [
+        ".github/workflows/lock.yaml"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "fixtures",
+       "to": "../app-core",
+       "label": "builds Flask app instances",
+       "kind": ""
+      },
+      {
+       "from": "core-tests",
+       "to": "fixtures",
+       "label": "uses app/client fixtures",
+       "kind": ""
+      },
+      {
+       "from": "web-tests",
+       "to": "fixtures",
+       "label": "uses app/client fixtures",
+       "kind": ""
+      },
+      {
+       "from": "cli-tests",
+       "to": "fixtures",
+       "label": "uses runner fixture",
+       "kind": ""
+      },
+      {
+       "from": "client-tests",
+       "to": "fixtures",
+       "label": "uses app/client fixtures",
+       "kind": ""
+      },
+      {
+       "from": "cli-tests",
+       "to": "fixture-apps",
+       "label": "invokes sample CLI apps",
+       "kind": ""
+      },
+      {
+       "from": "web-tests",
+       "to": "fixture-apps",
+       "label": "loads blueprint app fixtures",
+       "kind": ""
+      },
+      {
+       "from": "core-tests",
+       "to": "../app-core",
+       "label": "exercises Flask app behavior",
+       "kind": ""
+      },
+      {
+       "from": "web-tests",
+       "to": "../rendering",
+       "label": "exercises templates and JSON",
+       "kind": ""
+      },
+      {
+       "from": "web-tests",
+       "to": "../request-cycle",
+       "label": "exercises request/session contexts",
+       "kind": ""
+      },
+      {
+       "from": "cli-tests",
+       "to": "../cli",
+       "label": "exercises flask command",
+       "kind": ""
+      },
+      {
+       "from": "client-tests",
+       "to": "../test-client",
+       "label": "exercises client and CLI runner",
+       "kind": ""
+      },
+      {
+       "from": "ci-checks",
+       "to": "core-tests",
+       "label": "runs the pytest suite",
+       "kind": ""
+      },
+      {
+       "from": "ci-checks",
+       "to": "web-tests",
+       "label": "runs the pytest suite",
+       "kind": ""
+      },
+      {
+       "from": "ci-checks",
+       "to": "cli-tests",
+       "label": "runs the pytest suite",
+       "kind": ""
+      },
+      {
+       "from": "ci-checks",
+       "to": "client-tests",
+       "label": "runs the pytest suite",
+       "kind": ""
+      },
+      {
+       "from": "ci-checks",
+       "to": "type-checking",
+       "label": "runs mypy checks",
+       "kind": ""
+      },
+      {
+       "from": "../developer",
+       "to": "ci-checks",
+       "label": "triggers on push/PR",
+       "kind": "async"
+      },
+      {
+       "from": "../developer",
+       "to": "release-publish",
+       "label": "triggers on tag push",
+       "kind": "async"
+      },
+      {
+       "from": "issue-lock",
+       "to": "../developer",
+       "label": "frees up manual triage",
+       "kind": "async"
+      }
+     ],
+     "flows": [
+      {
+       "id": "pr-check",
+       "name": "What happens when a developer opens a pull request",
+       "summary": "A PR or push kicks off the full test, lint, and security-scan matrix before anything merges.",
+       "steps": [
+        {
+         "node": "../developer",
+         "text": "Opens a pull request or pushes to main/stable."
+        },
+        {
+         "from": "../developer",
+         "to": "ci-checks",
+         "text": "GitHub Actions starts the Tests, pre-commit, and zizmor workflows."
+        },
+        {
+         "from": "ci-checks",
+         "to": "fixtures",
+         "text": "Each test run boots fixtures that build a fresh Flask app and client."
+        },
+        {
+         "from": "fixtures",
+         "to": "core-tests",
+         "text": "Core, web, CLI, and client-test modules exercise their slice of Flask against that app."
+        },
+        {
+         "from": "ci-checks",
+         "to": "type-checking",
+         "text": "A separate job runs mypy over the typing fixtures to check the public API's type hints."
+        }
+       ]
+      },
+      {
+       "id": "release",
+       "name": "What happens when a maintainer pushes a version tag",
+       "summary": "A tag push builds the package and ships it to PyPI without a maintainer touching credentials.",
+       "steps": [
+        {
+         "node": "../developer",
+         "text": "Pushes a git tag such as 3.2.0."
+        },
+        {
+         "from": "../developer",
+         "to": "release-publish",
+         "text": "The tag push triggers the Publish workflow."
+        },
+        {
+         "node": "release-publish",
+         "text": "Builds the package, drafts a GitHub release with the build artifacts, then publishes to PyPI via a trusted OIDC token."
+        }
+       ]
+      },
+      {
+       "id": "nightly-lock",
+       "name": "What happens every night",
+       "summary": "A cron job quietly closes the loop on old, inactive issue threads.",
+       "steps": [
+        {
+         "node": "issue-lock",
+         "text": "A daily cron trigger fires at midnight."
+        },
+        {
+         "from": "issue-lock",
+         "to": "../developer",
+         "text": "Locks closed issues, PRs, and discussions idle for 14+ days, so maintainers don't have to triage them by hand."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "examples-docs",
+    "label": "Docs and examples",
+    "kind": "doc",
+    "summary": "Sphinx documentation and three runnable example apps: the tutorial blog, a JavaScript demo, and Celery tasks.",
+    "files": [
+     "docs/",
+     "examples/tutorial/flaskr/__init__.py",
+     "examples/celery/README.md"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "sphinx-docs",
+       "label": "Sphinx documentation",
+       "kind": "doc",
+       "summary": "The docs.flask.palletsprojects.com site, built with Sphinx, including the step-by-step tutorial that narrates building the flaskr example.",
+       "details": "- docs/conf.py configures the Pallets Sphinx theme, intersphinx links to Werkzeug/Jinja/Click, and a `:gh:` role linking to source on GitHub.\n- docs/tutorial/ is prose that walks a reader through writing each file in the flaskr example, in order.",
+       "files": [
+        "docs/conf.py",
+        "docs/tutorial/"
+       ]
+      },
+      {
+       "id": "tutorial-app",
+       "label": "Tutorial blog (flaskr)",
+       "kind": "module",
+       "summary": "The flaskr blog app built across the tutorial: user accounts and a list of posts anyone logged in can write.",
+       "details": "- Packaged as its own pip-installable project (pyproject.toml) so the tutorial can demonstrate packaging, not just scripting.\n- Uses an application factory plus two blueprints (auth, blog) and a SQLite database.",
+       "files": [
+        "examples/tutorial/flaskr/"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "factory",
+          "label": "App factory",
+          "kind": "module",
+          "summary": "create_app() builds the Flask instance, loads config, ensures the instance folder exists, and wires in the database and blueprints.",
+          "files": [
+           "examples/tutorial/flaskr/__init__.py"
+          ]
+         },
+         {
+          "id": "db",
+          "label": "Database access",
+          "kind": "module",
+          "summary": "Opens one SQLite connection per request (stored on `g`), closes it on teardown, and exposes the `flask init-db` CLI command.",
+          "files": [
+           "examples/tutorial/flaskr/db.py",
+           "examples/tutorial/flaskr/schema.sql"
+          ]
+         },
+         {
+          "id": "auth",
+          "label": "Auth blueprint",
+          "kind": "module",
+          "summary": "Registration, login, and logout views, plus a before-request hook that loads the current user into `g.user`.",
+          "files": [
+           "examples/tutorial/flaskr/auth.py"
+          ]
+         },
+         {
+          "id": "blog",
+          "label": "Blog blueprint",
+          "kind": "module",
+          "summary": "Lists, creates, updates, and deletes posts; write actions are guarded by auth's login_required decorator.",
+          "files": [
+           "examples/tutorial/flaskr/blog.py"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "factory",
+          "to": "db",
+          "label": "registers CLI + teardown"
+         },
+         {
+          "from": "factory",
+          "to": "auth",
+          "label": "registers blueprint"
+         },
+         {
+          "from": "factory",
+          "to": "blog",
+          "label": "registers blueprint"
+         },
+         {
+          "from": "auth",
+          "to": "db",
+          "label": "queries user table"
+         },
+         {
+          "from": "blog",
+          "to": "db",
+          "label": "queries post table"
+         },
+         {
+          "from": "blog",
+          "to": "auth",
+          "label": "reuses login_required"
+         }
+        ]
+       }
+      },
+      {
+       "id": "tutorial-tests",
+       "label": "Tutorial test suite",
+       "kind": "test",
+       "summary": "Pytest tests for flaskr covering the factory, the database, and every auth and blog view.",
+       "details": "- conftest.py loads data.sql into a temp SQLite file per test and yields Flask's test client.\n- One test module per app module: test_factory, test_db, test_auth, test_blog.",
+       "files": [
+        "examples/tutorial/tests/"
+       ]
+      },
+      {
+       "id": "js-example",
+       "label": "JavaScript demo",
+       "kind": "module",
+       "summary": "A tiny Flask app with one view that serves three versions of the same form (fetch, XHR, jQuery) that all POST to the same add endpoint.",
+       "details": "Demonstrates calling a Flask view from client-side JavaScript without a page reload: the form submits numbers, the view returns JSON, the page updates the result in place.",
+       "files": [
+        "examples/javascript/js_example/"
+       ]
+      },
+      {
+       "id": "celery-app",
+       "label": "Celery demo app",
+       "kind": "module",
+       "summary": "A Flask app whose views submit background jobs and let the browser poll for results, used to document Flask + Celery integration.",
+       "details": "- create_app() builds the Flask instance and calls celery_init_app(), which makes Celery tasks run inside a Flask app context.\n- make_celery.py is the entry point the `celery` CLI loads to start a worker against this same app/config.\n- views.py exposes POST /tasks/add, /block, /process and GET /tasks/result/<id>.",
+       "files": [
+        "examples/celery/src/task_app/__init__.py",
+        "examples/celery/src/task_app/views.py",
+        "examples/celery/make_celery.py"
+       ]
+      },
+      {
+       "id": "celery-tasks",
+       "label": "Celery tasks",
+       "kind": "module",
+       "summary": "The add/block/process jobs: plain functions decorated with @shared_task so Celery can queue and run them.",
+       "files": [
+        "examples/celery/src/task_app/tasks.py"
+       ]
+      },
+      {
+       "id": "celery-worker",
+       "label": "Celery worker + Redis",
+       "kind": "process",
+       "summary": "A separate OS process (`celery -A make_celery worker`) that pulls queued jobs off Redis, runs them, and writes results back.",
+       "details": "Redis is used as both the message broker and the result backend (configured in create_app's CELERY mapping). Not part of the Flask WSGI process; started and stopped independently."
+      }
+     ],
+     "edges": [
+      {
+       "from": "sphinx-docs",
+       "to": "../app-core",
+       "label": "documents the Flask class and patterns"
+      },
+      {
+       "from": "tutorial-app",
+       "to": "../app-core",
+       "label": "built with the app factory pattern"
+      },
+      {
+       "from": "tutorial-app",
+       "to": "../rendering",
+       "label": "renders Jinja templates for each page"
+      },
+      {
+       "from": "tutorial-app",
+       "to": "../request-cycle",
+       "label": "reads g.user set per request"
+      },
+      {
+       "from": "tutorial-tests",
+       "to": "../test-client",
+       "label": "drives every view via the test client"
+      },
+      {
+       "from": "js-example",
+       "to": "../app-core",
+       "label": "built as its own Flask instance"
+      },
+      {
+       "from": "js-example",
+       "to": "../rendering",
+       "label": "renders the fetch/XHR/jQuery templates"
+      },
+      {
+       "from": "celery-app",
+       "to": "../app-core",
+       "label": "built as its own Flask instance"
+      },
+      {
+       "from": "celery-app",
+       "to": "../cli",
+       "label": "run via flask -A task_app run"
+      },
+      {
+       "from": "celery-app",
+       "to": "celery-tasks",
+       "label": "queues add/block/process jobs",
+       "kind": "async"
+      },
+      {
+       "from": "celery-tasks",
+       "to": "celery-worker",
+       "label": "picked up and executed by",
+       "kind": "async"
+      },
+      {
+       "from": "celery-worker",
+       "to": "celery-app",
+       "label": "result polled via GET /tasks/result/<id>",
+       "kind": "data"
+      }
+     ],
+     "flows": [
+      {
+       "id": "tutorial-walkthrough",
+       "name": "What happens when a reader works through the tutorial",
+       "summary": "The docs walk a reader through building flaskr piece by piece, then its own tests verify the result.",
+       "steps": [
+        {
+         "node": "sphinx-docs",
+         "text": "The tutorial narrates building the flaskr blog app, file by file"
+        },
+        {
+         "from": "sphinx-docs",
+         "to": "tutorial-app",
+         "text": "Reader follows along writing the factory, database helpers, and the auth/blog blueprints"
+        },
+        {
+         "from": "tutorial-app",
+         "to": "tutorial-tests",
+         "text": "Each finished feature gets a pytest test exercising it through Flask's test client"
+        }
+       ]
+      },
+      {
+       "id": "celery-background-job",
+       "name": "What happens when a browser submits a background job",
+       "summary": "A view hands work to Celery instead of doing it inline, and the browser polls for the result.",
+       "steps": [
+        {
+         "node": "celery-app",
+         "text": "Browser POSTs to /tasks/add, /tasks/block, or /tasks/process"
+        },
+        {
+         "from": "celery-app",
+         "to": "celery-tasks",
+         "text": "The view calls task.delay(...), queuing the job instead of running it inline"
+        },
+        {
+         "from": "celery-tasks",
+         "to": "celery-worker",
+         "text": "The separately-running Celery worker pulls the job from Redis and executes it inside a Flask app context"
+        },
+        {
+         "from": "celery-worker",
+         "to": "celery-app",
+         "text": "Browser polls GET /tasks/result/<id>, which reads the job's status and value back from Redis"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "edges": [
+   {
+    "from": "developer",
+    "to": "app-core",
+    "label": "registers routes, config"
+   },
+   {
+    "from": "developer",
+    "to": "cli",
+    "label": "runs flask run"
+   },
+   {
+    "from": "server",
+    "to": "app-core",
+    "label": "calls per request"
+   },
+   {
+    "from": "app-core",
+    "to": "request-cycle",
+    "label": "pushes and pops context"
+   },
+   {
+    "from": "request-cycle",
+    "to": "rendering",
+    "label": "renders, serialises",
+    "kind": "data"
+   },
+   {
+    "from": "cli",
+    "to": "app-core",
+    "label": "locates and loads app"
+   },
+   {
+    "from": "cli",
+    "to": "server",
+    "label": "starts dev server"
+   },
+   {
+    "from": "test-client",
+    "to": "app-core",
+    "label": "sends fake requests"
+   },
+   {
+    "from": "app-core",
+    "to": "libraries",
+    "label": "builds on Werkzeug"
+   },
+   {
+    "from": "rendering",
+    "to": "libraries",
+    "label": "uses Jinja"
+   },
+   {
+    "from": "tests",
+    "to": "test-client",
+    "label": "drive the app"
+   },
+   {
+    "from": "examples-docs",
+    "to": "app-core",
+    "label": "show how to use"
+   }
+  ],
+  "flows": [
+   {
+    "id": "handle-request",
+    "name": "What happens when a request arrives",
+    "summary": "One HTTP request, from the server's call to the bytes going back out.",
+    "steps": [
+     {
+      "from": "server",
+      "to": "app-core",
+      "text": "The server calls the app object; `__call__` hands off to `wsgi_app` with the WSGI environ."
+     },
+     {
+      "from": "app-core",
+      "to": "request-cycle",
+      "text": "`wsgi_app` builds a context for the request and pushes it, so `request` and `session` become available and the cookie session is opened."
+     },
+     {
+      "node": "request-cycle",
+      "text": "`before_request` hooks run; if none returns early, the URL is matched and the view function is called."
+     },
+     {
+      "from": "request-cycle",
+      "to": "rendering",
+      "text": "The view usually renders a template or returns a dict, which becomes JSON."
+     },
+     {
+      "from": "app-core",
+      "to": "request-cycle",
+      "text": "`make_response` normalises the return value, `after_request` hooks run, the session is saved, and the context is popped with teardown handlers."
+     },
+     {
+      "from": "app-core",
+      "to": "server",
+      "text": "The response object is called with `start_response` and its body goes back to the client."
+     }
+    ]
+   },
+   {
+    "id": "flask-run",
+    "name": "Starting an app with `flask run`",
+    "summary": "How the command line finds an app and serves it.",
+    "steps": [
+     {
+      "from": "developer",
+      "to": "cli",
+      "text": "The developer runs `flask --app hello run` (or relies on FLASK_APP or a wsgi.py)."
+     },
+     {
+      "from": "cli",
+      "to": "app-core",
+      "text": "`ScriptInfo` imports the module and finds the app instance or `create_app` factory."
+     },
+     {
+      "from": "cli",
+      "to": "server",
+      "text": "The run command starts Werkzeug's development server with the reloader and debugger as configured."
+     },
+     {
+      "from": "server",
+      "to": "app-core",
+      "text": "From then on, every request takes the request path above."
+     }
+    ]
+   },
+   {
+    "id": "build-app",
+    "name": "Building an application",
+    "summary": "What the developer's setup code does before any request arrives.",
+    "steps": [
+     {
+      "from": "developer",
+      "to": "app-core",
+      "text": "`Flask(__name__)` creates the app and works out its root path for templates and static files."
+     },
+     {
+      "node": "app-core",
+      "text": "`@app.route` and blueprint registration add URL rules and view functions; blueprints replay their recorded setup onto the app."
+     },
+     {
+      "node": "app-core",
+      "text": "Config is loaded from objects, files, or environment variables, and hooks and error handlers are attached."
+     }
+    ]
+   },
+   {
+    "id": "test-app",
+    "name": "Testing an app without a server",
+    "summary": "How tests exercise an app in process.",
+    "steps": [
+     {
+      "from": "tests",
+      "to": "test-client",
+      "text": "A test asks the app for `test_client()` (or `test_cli_runner()`)."
+     },
+     {
+      "from": "test-client",
+      "to": "app-core",
+      "text": "The client builds a WSGI environ in memory and calls the app directly, keeping cookies between requests."
+     },
+     {
+      "from": "app-core",
+      "to": "request-cycle",
+      "text": "The request runs the normal context and dispatch path, so tests see real behaviour."
+     }
+    ]
+   }
+  ]
+ },
+ "source": "https://github.com/pallets/flask",
+ "generated": "2026-10-04 12:15",
+ "generator": "ai",
+ "commit": "d73fa1cdcbd8b1465c151db8924ba58b1dd14e35",
+ "coverage": "Mapped from the repository's contents only. User-level settings, connectors (MCP servers configured outside the repo), scheduled jobs, and secrets usually live outside a repository, so they are not visible here.",
+ "tool": {
+  "name": "Exploded View",
+  "version": "0.2.0",
+  "url": "https://github.com/tmedia-csb/exploded-view"
+ },
+ "repo_url": "https://github.com/pallets/flask"
+}

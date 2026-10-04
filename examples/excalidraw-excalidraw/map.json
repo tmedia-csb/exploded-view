@@ -1,0 +1,2964 @@
+{
+ "title": "Excalidraw",
+ "summary": "Excalidraw is an open-source, end-to-end encrypted collaborative whiteboard for hand-drawn-style diagrams. A React component library (the editor) is embedded inside a web app that adds local persistence, real-time multiplayer sync, and an AI-powered text-to-diagram feature.",
+ "root": {
+  "direction": "RIGHT",
+  "nodes": [
+   {
+    "id": "end-user",
+    "label": "End user",
+    "kind": "person",
+    "summary": "Draws, edits, and shares diagrams in the browser, alone or with collaborators."
+   },
+   {
+    "id": "web-app",
+    "label": "excalidraw.com web app",
+    "kind": "ui",
+    "summary": "The hosted application (and the Docker image others self-host) that wraps the editor with URL-based rooms, local persistence, and live collaboration.",
+    "details": "- Mounts the <Excalidraw> component from the editor-core package and wires up app-level menus, share dialogs, and the command palette.\n- Owns local persistence (browser storage/IndexedDB) and the encrypted room/collab layer.\n- A service worker (vite-plugin-pwa) makes it installable and partially offline.",
+    "files": [
+     "excalidraw-app/App.tsx",
+     "excalidraw-app/data/index.ts",
+     "excalidraw-app/collab/Collab.tsx"
+    ],
+    "children": {
+     "direction": "RIGHT",
+     "nodes": [
+      {
+       "id": "app-shell",
+       "label": "App shell & bootstrap",
+       "kind": "entry",
+       "summary": "Mounts the React app, decides what scene to show on load, and wires the embeddable editor to all the browser-only features below it.",
+       "details": "- index.tsx creates the React root, registers the PWA service worker, and starts Sentry error tracking.\n- App.tsx's initializeScene() always restores the last local scene first, then checks the URL for a `?id=`, `#json=`, or collaboration room link and swaps in that scene instead.\n- Owns the top-level app_constants.ts (storage keys, timeouts, websocket event names) and the small jotai store (app-jotai.ts) other parts read app-level state from.",
+       "files": [
+        "excalidraw-app/index.tsx",
+        "excalidraw-app/App.tsx",
+        "excalidraw-app/index.html",
+        "excalidraw-app/app_constants.ts",
+        "excalidraw-app/sentry.ts",
+        "excalidraw-app/app-jotai.ts"
+       ]
+      },
+      {
+       "id": "scene-persistence",
+       "label": "Local scene persistence",
+       "kind": "module",
+       "summary": "Saves the current drawing and its images to the browser's localStorage and IndexedDB, and keeps other open tabs of the same scene in sync.",
+       "details": "- LocalData.ts debounces saves of elements/appState to localStorage and routes image files through a LocalFileManager backed by IndexedDB (idb-keyval).\n- tabSync.ts stamps a version timestamp on every save so other tabs can tell their copy is stale.\n- Locker.ts pauses saving while an import/export is in flight; fileStatusStore.ts tracks per-image loading/loaded/error state for the UI.",
+       "files": [
+        "excalidraw-app/data/LocalData.ts",
+        "excalidraw-app/data/localStorage.ts",
+        "excalidraw-app/data/tabSync.ts",
+        "excalidraw-app/data/Locker.ts",
+        "excalidraw-app/data/fileStatusStore.ts",
+        "excalidraw-app/data/FileManager.ts"
+       ]
+      },
+      {
+       "id": "cloud-sync",
+       "label": "Cloud scene & file sync",
+       "kind": "module",
+       "summary": "Encrypts and uploads the shared scene and its images to Firebase when a drawing is opened via a share or collaboration link.",
+       "details": "- data/firebase.ts lazily initializes the Firebase app from a JSON config baked in at build time, then reads/writes the scene document in Firestore and image blobs in Firebase Storage.\n- data/index.ts filters which elements are worth syncing (isSyncableElement) and reconciles the Firestore scene with local changes using the same version-based reconciliation the editor uses.",
+       "files": [
+        "excalidraw-app/data/firebase.ts",
+        "excalidraw-app/data/index.ts"
+       ]
+      },
+      {
+       "id": "collab",
+       "label": "Real-time collaboration",
+       "kind": "module",
+       "summary": "Opens a room, encrypts every element update, and relays it to other collaborators over a websocket, reconciling what comes back.",
+       "details": "- Collab.tsx is the session: it owns the room key, idle/active presence, cursor broadcast throttling, and periodically saves the full scene to Firebase so late joiners can catch up.\n- Portal.tsx is the wire protocol: it opens the socket.io connection, joins the room, and listens for init-room / new-user / room-user-change / scene-update events.\n- CollabError.tsx surfaces connection failures to the user; debugCollaborators.ts is a dev-only helper for simulating extra collaborators.",
+       "files": [
+        "excalidraw-app/collab/Collab.tsx",
+        "excalidraw-app/collab/Portal.tsx",
+        "excalidraw-app/collab/CollabError.tsx",
+        "excalidraw-app/debugCollaborators.ts"
+       ]
+      },
+      {
+       "id": "share",
+       "label": "Share dialog",
+       "kind": "ui",
+       "summary": "Lets the user start or stop live collaboration and copy a shareable room link, with a QR code for scanning on another device.",
+       "files": [
+        "excalidraw-app/share/ShareDialog.tsx",
+        "excalidraw-app/share/ShareDialog.scss",
+        "excalidraw-app/share/QRCode.tsx",
+        "excalidraw-app/share/qrcode.chunk.ts"
+       ]
+      },
+      {
+       "id": "ai-diagram",
+       "label": "Text-to-diagram (AI)",
+       "kind": "module",
+       "summary": "Lets the user describe a diagram or frame of shapes in words and streams a generated Mermaid diagram or chat reply back into the scene.",
+       "details": "- AI.tsx renders the 'Text to Diagram' dialog (from the editor-core package) and wires its generate/chat callbacks to a streaming SSE fetch.\n- TTDStorage.ts caches past chats in IndexedDB so they survive a page reload.",
+       "files": [
+        "excalidraw-app/components/AI.tsx",
+        "excalidraw-app/data/TTDStorage.ts"
+       ]
+      },
+      {
+       "id": "excalidraw-plus-bridge",
+       "label": "Excalidraw+ bridge",
+       "kind": "module",
+       "summary": "Lets a free-app user export the current scene into the paid Excalidraw+ workspace, and lets the app respond when Excalidraw+ embeds it in an iframe and asks for the scene.",
+       "details": "- ExportToExcalidrawPlus.tsx encrypts and uploads the scene to Firebase Storage, then opens Excalidraw+ with a link to fetch it.\n- ExcalidrawPlusIframeExport.tsx listens for a postMessage REQUEST_SCENE from the parent frame and replies with the local scene, for the Excalidraw+ product embedding this app.\n- ExcalidrawPlusPromoBanner.tsx is a dismissible upsell banner.",
+       "files": [
+        "excalidraw-app/components/ExportToExcalidrawPlus.tsx",
+        "excalidraw-app/ExcalidrawPlusIframeExport.tsx",
+        "excalidraw-app/components/ExcalidrawPlusPromoBanner.tsx"
+       ]
+      },
+      {
+       "id": "ui-chrome",
+       "label": "App shell UI & diagnostics",
+       "kind": "ui",
+       "summary": "Renders the main menu, sidebar, welcome screen, footer, language picker, and dev-only debug/perf overlays around the embedded editor.",
+       "files": [
+        "excalidraw-app/components/AppMainMenu.tsx",
+        "excalidraw-app/components/AppSidebar.tsx",
+        "excalidraw-app/components/AppWelcomeScreen.tsx",
+        "excalidraw-app/components/AppFooter.tsx",
+        "excalidraw-app/components/TopErrorBoundary.tsx",
+        "excalidraw-app/components/DebugCanvas.tsx",
+        "excalidraw-app/components/CustomStats.tsx",
+        "excalidraw-app/components/EncryptedIcon.tsx",
+        "excalidraw-app/app-language/LanguageList.tsx",
+        "excalidraw-app/app-language/language-detector.ts",
+        "excalidraw-app/app-language/language-state.ts",
+        "excalidraw-app/useHandleAppTheme.ts"
+       ]
+      },
+      {
+       "id": "tests",
+       "label": "App-level tests",
+       "kind": "test",
+       "summary": "Component tests covering collaboration bootstrap, the language picker, and the mobile menu.",
+       "files": [
+        "excalidraw-app/tests/collab.test.tsx",
+        "excalidraw-app/tests/LanguageList.test.tsx",
+        "excalidraw-app/tests/MobileMenu.test.tsx"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "../end-user",
+       "to": "app-shell",
+       "label": "opens excalidraw.com",
+       "kind": ""
+      },
+      {
+       "from": "app-shell",
+       "to": "../editor-core",
+       "label": "mounts the embeddable editor",
+       "kind": ""
+      },
+      {
+       "from": "app-shell",
+       "to": "../element-model",
+       "label": "restores & links saved elements",
+       "kind": "data"
+      },
+      {
+       "from": "app-shell",
+       "to": "../foundation-packages",
+       "label": "uses shared utils & constants",
+       "kind": ""
+      },
+      {
+       "from": "app-shell",
+       "to": "scene-persistence",
+       "label": "restores/saves the local scene",
+       "kind": "data"
+      },
+      {
+       "from": "app-shell",
+       "to": "cloud-sync",
+       "label": "loads a shared or room scene",
+       "kind": "data"
+      },
+      {
+       "from": "app-shell",
+       "to": "collab",
+       "label": "starts collaboration for a room link",
+       "kind": ""
+      },
+      {
+       "from": "app-shell",
+       "to": "share",
+       "label": "opens the share dialog",
+       "kind": ""
+      },
+      {
+       "from": "app-shell",
+       "to": "ai-diagram",
+       "label": "renders the AI diagram dialog",
+       "kind": ""
+      },
+      {
+       "from": "app-shell",
+       "to": "excalidraw-plus-bridge",
+       "label": "renders export/import UI",
+       "kind": ""
+      },
+      {
+       "from": "app-shell",
+       "to": "ui-chrome",
+       "label": "renders menu, sidebar & footer",
+       "kind": ""
+      },
+      {
+       "from": "share",
+       "to": "collab",
+       "label": "starts/stops a room",
+       "kind": ""
+      },
+      {
+       "from": "collab",
+       "to": "../collab-relay-server",
+       "label": "joins room, relays element & cursor updates",
+       "kind": "async"
+      },
+      {
+       "from": "collab",
+       "to": "../element-model",
+       "label": "reads element bounds & versions",
+       "kind": "data"
+      },
+      {
+       "from": "collab",
+       "to": "cloud-sync",
+       "label": "periodically saves full scene for late joiners",
+       "kind": "data"
+      },
+      {
+       "from": "cloud-sync",
+       "to": "../firebase-storage",
+       "label": "reads/writes encrypted scene & files",
+       "kind": "data"
+      },
+      {
+       "from": "cloud-sync",
+       "to": "../element-model",
+       "label": "filters which elements are syncable",
+       "kind": "data"
+      },
+      {
+       "from": "excalidraw-plus-bridge",
+       "to": "../firebase-storage",
+       "label": "uploads exported scene",
+       "kind": "data"
+      },
+      {
+       "from": "ai-diagram",
+       "to": "../ai-diagram-service",
+       "label": "streams prompt & gets diagram/chat back",
+       "kind": "async"
+      },
+      {
+       "from": "ui-chrome",
+       "to": "../editor-core",
+       "label": "renders inside the editor shell",
+       "kind": ""
+      },
+      {
+       "from": "tests",
+       "to": "collab",
+       "label": "exercises collab bootstrap",
+       "kind": ""
+      },
+      {
+       "from": "tests",
+       "to": "ui-chrome",
+       "label": "exercises the language picker",
+       "kind": ""
+      }
+     ],
+     "flows": [
+      {
+       "id": "load-a-drawing",
+       "name": "What happens when the page loads",
+       "summary": "The app restores the last local drawing, then swaps in a shared or collaborated scene if the URL asks for one.",
+       "steps": [
+        {
+         "from": "../end-user",
+         "to": "app-shell",
+         "text": "User navigates to excalidraw.com, optionally with a share/room link in the URL."
+        },
+        {
+         "from": "app-shell",
+         "to": "scene-persistence",
+         "text": "The last saved scene is restored from localStorage/IndexedDB first, so there is always something to show."
+        },
+        {
+         "node": "app-shell",
+         "text": "The URL is checked for an ?id=, #json=, or #room= link; if one is present, that scene takes priority."
+        },
+        {
+         "from": "app-shell",
+         "to": "collab",
+         "text": "A room link hands off straight to Collab, which joins the socket room without touching local storage."
+        },
+        {
+         "from": "collab",
+         "to": "cloud-sync",
+         "text": "Collab fetches the room's encrypted scene from Firebase to seed the canvas."
+        },
+        {
+         "from": "app-shell",
+         "to": "../editor-core",
+         "text": "The resolved scene is handed to the embeddable editor to render."
+        }
+       ]
+      },
+      {
+       "id": "start-live-collaboration",
+       "name": "What happens when a user starts live collaboration",
+       "summary": "Opening the Share dialog and going live turns the local drawing into a synced, multi-user room.",
+       "steps": [
+        {
+         "node": "share",
+         "text": "User opens the Share dialog and clicks 'Start session'."
+        },
+        {
+         "from": "share",
+         "to": "collab",
+         "text": "The dialog tells Collab to generate a room id/key and start a session."
+        },
+        {
+         "from": "collab",
+         "to": "../collab-relay-server",
+         "text": "Portal opens a socket.io connection and joins the new room."
+        },
+        {
+         "from": "collab",
+         "to": "cloud-sync",
+         "text": "The full scene is saved to Firebase so anyone who opens the link afterward can load it."
+        },
+        {
+         "from": "cloud-sync",
+         "to": "../firebase-storage",
+         "text": "The encrypted scene and any images are written to Firestore and Storage."
+        }
+       ]
+      },
+      {
+       "id": "ai-generate-diagram",
+       "name": "What happens when a user asks AI to draw a diagram",
+       "summary": "A text prompt or a frame of shapes is streamed to the AI service and the response is turned into real elements on the canvas.",
+       "steps": [
+        {
+         "node": "ai-diagram",
+         "text": "User types a prompt (or drops a frame of elements) into the Text-to-Diagram dialog."
+        },
+        {
+         "from": "ai-diagram",
+         "to": "../ai-diagram-service",
+         "text": "The prompt (and a snapshot image for frame-based requests) is streamed to the hosted LLM endpoint."
+        },
+        {
+         "from": "../ai-diagram-service",
+         "to": "ai-diagram",
+         "text": "Mermaid syntax or chat text streams back in chunks and is parsed as it arrives."
+        },
+        {
+         "node": "ai-diagram",
+         "text": "The parsed result is converted into real elements on the canvas, and the chat is cached to IndexedDB."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "editor-core",
+    "label": "Editor core",
+    "kind": "module",
+    "summary": "The embeddable React whiteboard component published as @excalidraw/excalidraw: canvas rendering, tools, actions, and the AI diagram dialog.",
+    "details": "- packages/excalidraw/index.tsx exports the <Excalidraw> component and its imperative API; components/App.tsx (the largest file) holds the bulk of interaction logic.\n- Includes the 'Text to Diagram' (TTD) dialog, which turns a text prompt or a Mermaid chart into native elements.\n- Ships its own i18n, fonts, and CSS, and is usable standalone (see the browser-script and Next.js examples) without the web app.",
+    "files": [
+     "packages/excalidraw/index.tsx",
+     "packages/excalidraw/components/App.tsx",
+     "packages/excalidraw/package.json"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "app-orchestrator",
+       "label": "App orchestrator",
+       "kind": "module",
+       "summary": "The root React component holding all editor state and wiring pointer, keyboard, and tool input into scene changes.",
+       "details": "- Owns the single source of truth: elements, app state, and the collaborators list.\n- Routes pointer and keyboard events to the active tool (selection, draw, text, eraser, bucket fill).\n- Coordinates viewport pan/zoom/scroll and schedules re-renders after every state change.\n- Hosts the in-place text editor overlay used while typing on the canvas.",
+       "files": [
+        "packages/excalidraw/components/App.tsx",
+        "packages/excalidraw/components/App.viewport.ts",
+        "packages/excalidraw/components/App.text.ts",
+        "packages/excalidraw/components/App.textTool.ts",
+        "packages/excalidraw/components/App.drawshape.ts",
+        "packages/excalidraw/components/App.pan.ts",
+        "packages/excalidraw/components/App.clipboard.ts",
+        "packages/excalidraw/components/App.duplicate.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "pointer-tool-input",
+          "label": "Pointer & tool input",
+          "kind": "module",
+          "summary": "Resolves pointer and keyboard events into tool actions: drawing, dragging, text, and bucket fill.",
+          "files": [
+           "packages/excalidraw/components/App.tsx",
+           "packages/excalidraw/components/App.drawshape.ts",
+           "packages/excalidraw/components/App.toolDrag.ts",
+           "packages/excalidraw/components/App.textTool.ts",
+           "packages/excalidraw/components/App.bucketFill.ts"
+          ]
+         },
+         {
+          "id": "viewport-control",
+          "label": "Viewport & pan/zoom",
+          "kind": "module",
+          "summary": "Pan, zoom, scroll, and cursor state for the infinite canvas.",
+          "files": [
+           "packages/excalidraw/components/App.viewport.ts",
+           "packages/excalidraw/components/App.pan.ts",
+           "packages/excalidraw/components/App.cursor.ts",
+           "packages/excalidraw/viewport.ts"
+          ]
+         },
+         {
+          "id": "text-editing",
+          "label": "Text editing overlay",
+          "kind": "module",
+          "summary": "The floating textarea overlay used to type and edit text and labels directly on the canvas.",
+          "files": [
+           "packages/excalidraw/components/App.text.ts",
+           "packages/excalidraw/components/App.arrowText.ts",
+           "packages/excalidraw/wysiwyg/textWysiwyg.tsx"
+          ]
+         },
+         {
+          "id": "duplicate-clipboard",
+          "label": "Duplicate & app clipboard",
+          "kind": "module",
+          "summary": "Alt-drag duplication and the App-level glue for cut/copy/paste of selected elements.",
+          "files": [
+           "packages/excalidraw/components/App.duplicate.ts",
+           "packages/excalidraw/components/App.clipboard.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "viewport-control",
+          "to": "pointer-tool-input",
+          "label": "provides canvas coordinates",
+          "kind": "data"
+         },
+         {
+          "from": "pointer-tool-input",
+          "to": "text-editing",
+          "label": "opens overlay on text tool",
+          "kind": ""
+         },
+         {
+          "from": "pointer-tool-input",
+          "to": "duplicate-clipboard",
+          "label": "alt-drag triggers duplicate",
+          "kind": ""
+         }
+        ]
+       }
+      },
+      {
+       "id": "action-system",
+       "label": "Action & shortcut system",
+       "kind": "module",
+       "summary": "Registry of named actions (align, delete, group, export…) triggered by menus, toolbar buttons, or keyboard shortcuts.",
+       "details": "- actions/register.ts and manager.tsx keep a lookup from action name to its executor and keyboard shortcut.\n- Each action file (e.g. actionAlign, actionDeleteSelected) reads selected elements and returns the updated scene.\n- Shared predicates decide whether an action is enabled for the current selection.",
+       "files": [
+        "packages/excalidraw/actions/manager.tsx",
+        "packages/excalidraw/actions/register.ts",
+        "packages/excalidraw/actions/actionDeleteSelected.tsx",
+        "packages/excalidraw/actions/actionAlign.tsx",
+        "packages/excalidraw/actions/actionGroup.tsx",
+        "packages/excalidraw/actions/actionClipboard.tsx",
+        "packages/excalidraw/actions/actionExport.tsx",
+        "packages/excalidraw/actions/shortcuts.ts"
+       ]
+      },
+      {
+       "id": "canvas-renderer",
+       "label": "Canvas renderer",
+       "kind": "module",
+       "summary": "Paints the current elements and UI overlays onto the static and interactive HTML canvases every frame.",
+       "details": "- staticScene/staticSvgScene draw committed elements; interactiveScene draws selection handles, snapping guides, and the laser pointer trail.\n- Renderer.ts coordinates which canvas needs repainting after a state change.\n- Snapping and animated-trail helpers feed visual guides back into the interactive layer.",
+       "files": [
+        "packages/excalidraw/renderer/staticScene.ts",
+        "packages/excalidraw/renderer/staticSvgScene.ts",
+        "packages/excalidraw/renderer/interactiveScene.ts",
+        "packages/excalidraw/renderer/renderSnaps.ts",
+        "packages/excalidraw/scene/Renderer.ts",
+        "packages/excalidraw/scene/export.ts",
+        "packages/excalidraw/snapping.ts",
+        "packages/excalidraw/animatedTrail.ts"
+       ]
+      },
+      {
+       "id": "ui-shell",
+       "label": "UI shell",
+       "kind": "ui",
+       "summary": "The chrome around the canvas: toolbar, menus, dialogs, library panel, and property pickers.",
+       "details": "- LayerUI.tsx composes the whole surrounding interface from smaller panels.\n- Toolbar/Tools pick the active drawing tool; the main menu and command palette expose every registered action.\n- Stats, ColorPicker, and FontPicker edit properties of the current selection.\n- The library panel lets users save and reuse shape collections.",
+       "files": [
+        "packages/excalidraw/components/LayerUI.tsx",
+        "packages/excalidraw/components/Toolbar.tsx",
+        "packages/excalidraw/components/Tools.tsx",
+        "packages/excalidraw/components/Actions.tsx",
+        "packages/excalidraw/components/main-menu/DefaultItems.tsx",
+        "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+        "packages/excalidraw/components/LibraryMenu.tsx",
+        "packages/excalidraw/components/Stats/index.tsx"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "toolbar-and-tools",
+          "label": "Toolbar & tools",
+          "kind": "ui",
+          "summary": "Tool-selection strip and the contextual action buttons shown while something is selected.",
+          "files": [
+           "packages/excalidraw/components/Toolbar.tsx",
+           "packages/excalidraw/components/Tools.tsx",
+           "packages/excalidraw/components/Actions.tsx",
+           "packages/excalidraw/components/MobileToolbar.tsx"
+          ]
+         },
+         {
+          "id": "menus-and-palette",
+          "label": "Menus & command palette",
+          "kind": "ui",
+          "summary": "Main menu, right-click context menu, and the searchable command palette for running any action.",
+          "files": [
+           "packages/excalidraw/components/main-menu/DefaultItems.tsx",
+           "packages/excalidraw/components/ContextMenu.tsx",
+           "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+           "packages/excalidraw/components/SearchMenu.tsx"
+          ]
+         },
+         {
+          "id": "property-pickers",
+          "label": "Property pickers",
+          "kind": "ui",
+          "summary": "Numeric stats panel and color/font/icon pickers for editing the selected elements' properties.",
+          "files": [
+           "packages/excalidraw/components/Stats/index.tsx",
+           "packages/excalidraw/components/ColorPicker/ColorPicker.tsx",
+           "packages/excalidraw/components/FontPicker/FontPicker.tsx",
+           "packages/excalidraw/components/IconPicker.tsx"
+          ]
+         },
+         {
+          "id": "library-panel",
+          "label": "Library panel",
+          "kind": "ui",
+          "summary": "Save, browse, and insert reusable shape collections, including publishing to the public library.",
+          "files": [
+           "packages/excalidraw/components/LibraryMenu.tsx",
+           "packages/excalidraw/components/LibraryMenuItems.tsx",
+           "packages/excalidraw/components/LibraryMenuHeaderContent.tsx",
+           "packages/excalidraw/components/PublishLibrary.tsx"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "toolbar-and-tools",
+          "to": "../app-orchestrator",
+          "label": "sets the active tool in app state",
+          "kind": ""
+         },
+         {
+          "from": "menus-and-palette",
+          "to": "../action-system",
+          "label": "invokes an action by name",
+          "kind": ""
+         },
+         {
+          "from": "property-pickers",
+          "to": "../action-system",
+          "label": "applies property-change actions",
+          "kind": ""
+         },
+         {
+          "from": "library-panel",
+          "to": "../persistence-io",
+          "label": "reads/writes the saved library",
+          "kind": "data"
+         }
+        ]
+       }
+      },
+      {
+       "id": "ai-diagram-dialog",
+       "label": "AI diagram dialog",
+       "kind": "ui",
+       "summary": "The 'Text to Diagram' (TTD) dialog: lets a user describe a diagram in words and inserts the generated shapes.",
+       "details": "- Chat.tsx and useTextGeneration.ts manage the conversation UI and prompt state.\n- TTDStreamFetch.ts streams the response from the AI diagram service.\n- MermaidToExcalidraw.tsx parses the returned Mermaid syntax into native elements and inserts them into the scene.",
+       "files": [
+        "packages/excalidraw/components/TTDDialog/TextToDiagram.tsx",
+        "packages/excalidraw/components/TTDDialog/MermaidToExcalidraw.tsx",
+        "packages/excalidraw/components/TTDDialog/Chat/ChatMessage.tsx",
+        "packages/excalidraw/components/TTDDialog/hooks/useTextGeneration.ts",
+        "packages/excalidraw/components/TTDDialog/utils/TTDStreamFetch.ts",
+        "packages/excalidraw/components/TTDDialog/utils/mermaidValidation.test.ts",
+        "packages/excalidraw/components/TTDDialog/CodeMirrorEditor.tsx"
+       ]
+      },
+      {
+       "id": "persistence-io",
+       "label": "Persistence & data I/O",
+       "kind": "module",
+       "summary": "Serializes and restores scenes, manages the saved shape library, and encodes images/blobs for export, paste, and drag-drop.",
+       "details": "- restore.ts validates and migrates element/appState data coming from files, paste, or collaboration.\n- library.ts persists the user's saved shape library (and the library currently open in the app).\n- blob.ts and encode.ts turn files, images, and clipboard data into the formats the editor and exporters need.",
+       "files": [
+        "packages/excalidraw/data/restore.ts",
+        "packages/excalidraw/data/library.ts",
+        "packages/excalidraw/data/blob.ts",
+        "packages/excalidraw/data/encode.ts",
+        "packages/excalidraw/data/json.ts",
+        "packages/excalidraw/data/index.ts",
+        "packages/excalidraw/data/ai/types.ts"
+       ]
+      },
+      {
+       "id": "clipboard-history",
+       "label": "Clipboard & history",
+       "kind": "module",
+       "summary": "Copy/paste of elements to and from the OS clipboard, and the linear undo/redo stack.",
+       "details": "- clipboard.ts builds the excalidraw/clipboard payload (with plain image/text fallbacks) on copy, and parses it back on paste.\n- history.ts keeps a bounded stack of scene snapshots so every action can be undone and redone.",
+       "files": [
+        "packages/excalidraw/clipboard.ts",
+        "packages/excalidraw/history.ts"
+       ]
+      },
+      {
+       "id": "charts-import",
+       "label": "Chart paste",
+       "kind": "module",
+       "summary": "Detects spreadsheet data pasted onto the canvas and offers to render it as a native bar/line chart.",
+       "details": "- charts/ parses tab-separated clipboard text into chart data.\n- PasteChartDialog.tsx lets the user pick a chart type before the elements are created.",
+       "files": [
+        "packages/excalidraw/charts/index.ts",
+        "packages/excalidraw/charts/charts.helpers.ts",
+        "packages/excalidraw/charts/charts.types.ts",
+        "packages/excalidraw/components/PasteChartDialog.tsx"
+       ]
+      },
+      {
+       "id": "fonts-and-i18n",
+       "label": "Fonts & i18n",
+       "kind": "module",
+       "summary": "Loads and subsets embedded fonts for accurate text export, and supplies translated strings for the whole UI.",
+       "details": "- Fonts.ts registers each bundled font family and lazy-loads its glyphs.\n- subset/ runs a WASM (woff2) subsetter so exported SVG/PNG embed only the glyphs actually used.\n- i18n.ts and locales/ provide translated strings via the Trans.tsx component.",
+       "files": [
+        "packages/excalidraw/fonts/Fonts.ts",
+        "packages/excalidraw/subset/woff2/woff2-bindings.ts",
+        "packages/excalidraw/subset/subset-main.ts",
+        "packages/excalidraw/i18n.ts"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "app-orchestrator",
+       "to": "action-system",
+       "label": "dispatches registered actions",
+       "kind": ""
+      },
+      {
+       "from": "action-system",
+       "to": "app-orchestrator",
+       "label": "returns updated elements/appState",
+       "kind": "data"
+      },
+      {
+       "from": "app-orchestrator",
+       "to": "canvas-renderer",
+       "label": "triggers repaint on state change",
+       "kind": "async"
+      },
+      {
+       "from": "app-orchestrator",
+       "to": "ui-shell",
+       "label": "mounts toolbar, menus & panels",
+       "kind": ""
+      },
+      {
+       "from": "ui-shell",
+       "to": "action-system",
+       "label": "fires actions from clicks & shortcuts",
+       "kind": ""
+      },
+      {
+       "from": "app-orchestrator",
+       "to": "clipboard-history",
+       "label": "pushes an undo snapshot per change",
+       "kind": ""
+      },
+      {
+       "from": "app-orchestrator",
+       "to": "persistence-io",
+       "label": "loads/restores the initial scene",
+       "kind": "data"
+      },
+      {
+       "from": "ui-shell",
+       "to": "ai-diagram-dialog",
+       "label": "opens Text-to-Diagram dialog",
+       "kind": ""
+      },
+      {
+       "from": "ai-diagram-dialog",
+       "to": "../ai-diagram-service",
+       "label": "streams prompt, gets Mermaid back",
+       "kind": "data"
+      },
+      {
+       "from": "ai-diagram-dialog",
+       "to": "app-orchestrator",
+       "label": "inserts generated elements",
+       "kind": "data"
+      },
+      {
+       "from": "app-orchestrator",
+       "to": "charts-import",
+       "label": "hands off pasted spreadsheet text",
+       "kind": "data"
+      },
+      {
+       "from": "charts-import",
+       "to": "app-orchestrator",
+       "label": "inserts chart elements",
+       "kind": "data"
+      },
+      {
+       "from": "canvas-renderer",
+       "to": "fonts-and-i18n",
+       "label": "measures & draws text with loaded fonts",
+       "kind": ""
+      },
+      {
+       "from": "ui-shell",
+       "to": "fonts-and-i18n",
+       "label": "renders translated labels",
+       "kind": "data"
+      },
+      {
+       "from": "app-orchestrator",
+       "to": "../element-model",
+       "label": "creates and mutates scene elements",
+       "kind": "data"
+      },
+      {
+       "from": "canvas-renderer",
+       "to": "../element-model",
+       "label": "reads element geometry to paint",
+       "kind": "data"
+      },
+      {
+       "from": "app-orchestrator",
+       "to": "../web-app",
+       "label": "notifies host via onChange/collab props",
+       "kind": "async"
+      },
+      {
+       "from": "../end-user",
+       "to": "app-orchestrator",
+       "label": "draws, clicks, and types",
+       "kind": ""
+      },
+      {
+       "from": "persistence-io",
+       "to": "../element-model",
+       "label": "validates/migrates restored elements",
+       "kind": "data"
+      }
+     ],
+     "flows": [
+      {
+       "id": "draw-a-shape",
+       "name": "What happens when a user draws a shape",
+       "summary": "Pointer input on the canvas becomes a new element that is persisted and painted.",
+       "steps": [
+        {
+         "from": "../end-user",
+         "to": "app-orchestrator",
+         "text": "Presses a tool button, then drags on the canvas."
+        },
+        {
+         "from": "app-orchestrator",
+         "to": "../element-model",
+         "text": "Creates the new element and updates its geometry as the pointer moves."
+        },
+        {
+         "from": "app-orchestrator",
+         "to": "canvas-renderer",
+         "text": "Schedules a repaint after each pointer move."
+        },
+        {
+         "node": "canvas-renderer",
+         "text": "Paints the in-progress shape onto the interactive canvas."
+        },
+        {
+         "from": "app-orchestrator",
+         "to": "clipboard-history",
+         "text": "On pointer-up, pushes the finished state onto the undo stack."
+        }
+       ]
+      },
+      {
+       "id": "ai-text-to-diagram",
+       "name": "What happens when a user asks the AI to draw a diagram",
+       "summary": "A text prompt is turned into Mermaid syntax by the AI service, then converted into native elements.",
+       "steps": [
+        {
+         "from": "../end-user",
+         "to": "ui-shell",
+         "text": "Opens the 'Text to Diagram' dialog and types a description."
+        },
+        {
+         "from": "ui-shell",
+         "to": "ai-diagram-dialog",
+         "text": "Hands the prompt to the TTD dialog."
+        },
+        {
+         "from": "ai-diagram-dialog",
+         "to": "../ai-diagram-service",
+         "text": "Streams the prompt to the hosted LLM endpoint."
+        },
+        {
+         "from": "ai-diagram-dialog",
+         "to": "app-orchestrator",
+         "text": "Parses the returned Mermaid into elements and inserts them into the scene."
+        },
+        {
+         "from": "app-orchestrator",
+         "to": "canvas-renderer",
+         "text": "Repaints the canvas with the new diagram."
+        }
+       ]
+      },
+      {
+       "id": "save-and-restore-a-scene",
+       "name": "What happens when a scene is saved and reopened",
+       "summary": "The editor hands its elements to the host app for storage, and validates them again on reload.",
+       "steps": [
+        {
+         "from": "app-orchestrator",
+         "to": "persistence-io",
+         "text": "Serializes the current elements and app state."
+        },
+        {
+         "from": "persistence-io",
+         "to": "../web-app",
+         "text": "Returns the serialized scene via the onChange callback for the host to persist."
+        },
+        {
+         "from": "../web-app",
+         "to": "persistence-io",
+         "text": "Later passes saved data back in as initial props."
+        },
+        {
+         "from": "persistence-io",
+         "to": "../element-model",
+         "text": "Validates and migrates the restored elements to the current schema."
+        },
+        {
+         "from": "persistence-io",
+         "to": "app-orchestrator",
+         "text": "Hands back a clean, validated scene to render."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "element-model",
+    "label": "Element & geometry model",
+    "kind": "module",
+    "summary": "The data model for every shape on the canvas: creation, binding, resizing, collision, grouping, and frames.",
+    "details": "- Published as @excalidraw/element; consumed by both editor-core and the web app's collab/reconciliation code.\n- binding.ts (the largest file in the repo) handles arrows binding to shapes; delta.ts and store.ts back undo/redo history.",
+    "files": [
+     "packages/element/src/index.ts",
+     "packages/element/src/binding.ts",
+     "packages/element/src/types.ts"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "element-model",
+       "label": "Element data model",
+       "kind": "data",
+       "summary": "The discriminated-union shape of every element, plus the factory, duplicate, convert, and single mutation function that create and change them.",
+       "details": "- types.ts defines the ExcalidrawElement union (rectangle, diamond, ellipse, text, line/arrow, freedraw, image, frame, iframe, embeddable, sticky note) and shared fields like version, versionNonce, index, groupIds, frameId.\n- newElement.ts builds a new element with sensible defaults; duplicate.ts deep-copies one (new id/seed, fresh lifetime); convertToShape.ts turns one generic/linear type into another.\n- mutateElement.ts is the one chokepoint for changing an existing element: applies a partial ElementUpdate immutably, bumps version/versionNonce for sync, and re-derives elbow-arrow geometry when points change.",
+       "files": [
+        "packages/element/src/types.ts",
+        "packages/element/src/typeChecks.ts",
+        "packages/element/src/comparisons.ts",
+        "packages/element/src/newElement.ts",
+        "packages/element/src/duplicate.ts",
+        "packages/element/src/convertToShape.ts",
+        "packages/element/src/mutateElement.ts"
+       ]
+      },
+      {
+       "id": "scene-container",
+       "label": "Scene container",
+       "kind": "module",
+       "summary": "Holds the app's live elements map (all vs. non-deleted), answers selection queries, and throttles fractional-index validation in dev.",
+       "files": [
+        "packages/element/src/Scene.ts"
+       ]
+      },
+      {
+       "id": "history-and-diffing",
+       "label": "History & diffing",
+       "kind": "module",
+       "summary": "Captures scene changes as undo/redo-able increments and computes the before/after delta that drives undo, redo, and multiplayer reconciliation.",
+       "details": "- store.ts's Store class buffers scheduled mutations and classifies each as IMMEDIATELY / EVENTUALLY / NEVER undoable (CaptureUpdateAction).\n- delta.ts's [redacted] compute deleted-vs-inserted partials between two snapshots; getSceneVersion is marked deprecated in favor of hashElementsVersion.",
+       "files": [
+        "packages/element/src/store.ts",
+        "packages/element/src/delta.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "capture-store",
+          "label": "Capture store",
+          "kind": "module",
+          "summary": "Buffers scheduled scene mutations into increments and classifies them as immediately, eventually, or never undoable.",
+          "files": [
+           "packages/element/src/store.ts"
+          ]
+         },
+         {
+          "id": "delta-diffing",
+          "label": "Delta diffing",
+          "kind": "module",
+          "summary": "Computes the deleted/inserted partials between two element or app-state snapshots, used to apply or invert a change.",
+          "files": [
+           "packages/element/src/delta.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "capture-store",
+          "to": "delta-diffing",
+          "label": "diffs before/after snapshot via",
+          "kind": ""
+         },
+         {
+          "from": "delta-diffing",
+          "to": "../element-model",
+          "label": "diffs partials of",
+          "kind": "data"
+         }
+        ]
+       }
+      },
+      {
+       "id": "geometry-engine",
+       "label": "Geometry & hit-testing",
+       "kind": "module",
+       "summary": "Computes bounding boxes, rotated corners, distances, and point/line hit-testing that the rest of the model relies on.",
+       "files": [
+        "packages/element/src/bounds.ts",
+        "packages/element/src/collision.ts",
+        "packages/element/src/distance.ts",
+        "packages/element/src/heading.ts",
+        "packages/element/src/utils.ts"
+       ]
+      },
+      {
+       "id": "binding-engine",
+       "label": "Binding engine",
+       "kind": "module",
+       "summary": "Keeps arrows, labels, and links attached to the shapes they bind to, re-routing elbow arrows and repairing bindings when a bound element moves.",
+       "details": "- binding.ts computes fixed-point anchors for arrow/text bindings and repairs them on move, resize, or delete of the bound shape.\n- elbowArrow.ts re-routes elbow-style arrows around obstacles as endpoints or fixed segments change.\n- arrows/focus.ts, arrows/helpers.ts, arrowEndpointText.ts, and elementLink.ts handle snap targets, endpoint-text labels, and clickable element-to-element links.",
+       "files": [
+        "packages/element/src/binding.ts",
+        "packages/element/src/elbowArrow.ts",
+        "packages/element/src/arrows/focus.ts",
+        "packages/element/src/arrows/helpers.ts",
+        "packages/element/src/arrowEndpointText.ts",
+        "packages/element/src/elementLink.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "fixed-point-binding",
+          "label": "Fixed-point binding",
+          "kind": "module",
+          "summary": "Computes and repairs the fixed-point anchors that keep an arrow or text attached to its bound shape.",
+          "files": [
+           "packages/element/src/binding.ts"
+          ]
+         },
+         {
+          "id": "elbow-routing",
+          "label": "Elbow arrow routing",
+          "kind": "module",
+          "summary": "Re-routes elbow-style arrows around obstacles as their endpoints, fixed segments, or bound shapes change.",
+          "files": [
+           "packages/element/src/elbowArrow.ts"
+          ]
+         },
+         {
+          "id": "arrow-focus-helpers",
+          "label": "Arrow focus & links",
+          "kind": "module",
+          "summary": "Finds snap/focus points on bindable shapes, positions arrow endpoint text labels, and manages clickable element-to-element links.",
+          "files": [
+           "packages/element/src/arrows/focus.ts",
+           "packages/element/src/arrows/helpers.ts",
+           "packages/element/src/arrowEndpointText.ts",
+           "packages/element/src/elementLink.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "fixed-point-binding",
+          "to": "elbow-routing",
+          "label": "delegates elbow point updates to",
+          "kind": ""
+         },
+         {
+          "from": "fixed-point-binding",
+          "to": "arrow-focus-helpers",
+          "label": "snaps bound point via",
+          "kind": ""
+         },
+         {
+          "from": "elbow-routing",
+          "to": "../geometry-engine",
+          "label": "computes heading & collision via",
+          "kind": "data"
+         }
+        ]
+       }
+      },
+      {
+       "id": "interactive-editing",
+       "label": "Interactive editing",
+       "kind": "module",
+       "summary": "Point-level editing of lines and arrows, resize/rotate handles, dragging selections, and aligning or distributing groups of elements.",
+       "details": "- linearElementEditor.ts drives dragging and adding/removing points on a line or arrow, snapping to curves and shape outlines.\n- resizeElements.ts/resizeTest.ts/transformHandles.ts/transform.ts compute resize handles and the resize/rotate math, keeping bound text and arrows consistent.\n- dragElements.ts/align.ts/distribute.ts/positionElementsOnGrid.ts/selection.ts move, align, distribute, and grid-snap selections.",
+       "files": [
+        "packages/element/src/linearElementEditor.ts",
+        "packages/element/src/resizeElements.ts",
+        "packages/element/src/dragElements.ts",
+        "packages/element/src/transformHandles.ts",
+        "packages/element/src/align.ts",
+        "packages/element/src/distribute.ts",
+        "packages/element/src/selection.ts",
+        "packages/element/src/positionElementsOnGrid.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "linear-point-editor",
+          "label": "Linear point editor",
+          "kind": "module",
+          "summary": "Interactive editing of a line/arrow's points: dragging, adding or removing midpoints, snapping to curves and shape outlines.",
+          "files": [
+           "packages/element/src/linearElementEditor.ts"
+          ]
+         },
+         {
+          "id": "resize-handles",
+          "label": "Resize & rotate handles",
+          "kind": "module",
+          "summary": "Resize/rotate handle hit-testing and the math for scaling one or many selected elements, including bound text and arrows.",
+          "files": [
+           "packages/element/src/resizeElements.ts",
+           "packages/element/src/resizeTest.ts",
+           "packages/element/src/transform.ts",
+           "packages/element/src/transformHandles.ts"
+          ]
+         },
+         {
+          "id": "drag-align-distribute",
+          "label": "Drag, align & distribute",
+          "kind": "module",
+          "summary": "Dragging a selection, aligning or evenly distributing a group of elements, and snapping positions to the grid.",
+          "files": [
+           "packages/element/src/dragElements.ts",
+           "packages/element/src/align.ts",
+           "packages/element/src/distribute.ts",
+           "packages/element/src/positionElementsOnGrid.ts",
+           "packages/element/src/selection.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "resize-handles",
+          "to": "../binding-engine",
+          "label": "re-anchors bindings after resize",
+          "kind": ""
+         },
+         {
+          "from": "drag-align-distribute",
+          "to": "../geometry-engine",
+          "label": "recomputes bounds while dragging",
+          "kind": "data"
+         },
+         {
+          "from": "linear-point-editor",
+          "to": "../binding-engine",
+          "label": "updates fixed-point bindings on drag",
+          "kind": ""
+         }
+        ]
+       }
+      },
+      {
+       "id": "ordering-and-structure",
+       "label": "Grouping, frames & order",
+       "kind": "module",
+       "summary": "Tracks group membership and selection, frame containment, z-order actions, and the fractional indices that keep array order in sync across collaborators.",
+       "files": [
+        "packages/element/src/groups.ts",
+        "packages/element/src/frame.ts",
+        "packages/element/src/zindex.ts",
+        "packages/element/src/fractionalIndex.ts",
+        "packages/element/src/sortElements.ts"
+       ]
+      },
+      {
+       "id": "text-layout",
+       "label": "Text layout & binding",
+       "kind": "module",
+       "summary": "Measures and wraps text, positions a bound text label inside its container or along an arrow, and sizes list markers.",
+       "files": [
+        "packages/element/src/textElement.ts",
+        "packages/element/src/textMeasurements.ts",
+        "packages/element/src/textWrapping.ts",
+        "packages/element/src/listMarker.ts"
+       ]
+      },
+      {
+       "id": "shape-render-cache",
+       "label": "Shape & render cache",
+       "kind": "module",
+       "summary": "Generates and caches the rough.js hand-drawn shape for each element and dispatches canvas rendering by element type.",
+       "files": [
+        "packages/element/src/shape.ts",
+        "packages/element/src/renderElement.ts"
+       ]
+      },
+      {
+       "id": "type-specific-behaviors",
+       "label": "Type-specific behaviors",
+       "kind": "module",
+       "summary": "Special-cased logic for particular element kinds: sticky-note auto-fit, embeddable/image handling and cropping, flowchart linking, and bucket-fill flood.",
+       "files": [
+        "packages/element/src/stickyNote.ts",
+        "packages/element/src/embeddable.ts",
+        "packages/element/src/image.ts",
+        "packages/element/src/cropElement.ts",
+        "packages/element/src/flowchart.ts",
+        "packages/element/src/bucketFill.ts"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "interactive-editing",
+       "to": "element-model",
+       "label": "applies final changes via mutateElement",
+       "kind": ""
+      },
+      {
+       "from": "interactive-editing",
+       "to": "geometry-engine",
+       "label": "recomputes bounds & hit-tests",
+       "kind": "data"
+      },
+      {
+       "from": "interactive-editing",
+       "to": "binding-engine",
+       "label": "re-anchors bound arrows/labels",
+       "kind": ""
+      },
+      {
+       "from": "interactive-editing",
+       "to": "text-layout",
+       "label": "resizes bound text labels",
+       "kind": ""
+      },
+      {
+       "from": "binding-engine",
+       "to": "geometry-engine",
+       "label": "hit-tests bindable shapes",
+       "kind": "data"
+      },
+      {
+       "from": "binding-engine",
+       "to": "element-model",
+       "label": "mutates bound elements via",
+       "kind": ""
+      },
+      {
+       "from": "binding-engine",
+       "to": "text-layout",
+       "label": "repositions bound labels",
+       "kind": ""
+      },
+      {
+       "from": "element-model",
+       "to": "history-and-diffing",
+       "label": "each change is captured by",
+       "kind": ""
+      },
+      {
+       "from": "scene-container",
+       "to": "ordering-and-structure",
+       "label": "syncs fractional indices with array order",
+       "kind": ""
+      },
+      {
+       "from": "scene-container",
+       "to": "history-and-diffing",
+       "label": "state is snapshotted by",
+       "kind": "data"
+      },
+      {
+       "from": "scene-container",
+       "to": "shape-render-cache",
+       "label": "supplies elements to render",
+       "kind": "data"
+      },
+      {
+       "from": "ordering-and-structure",
+       "to": "element-model",
+       "label": "reorders via newElementWith",
+       "kind": ""
+      },
+      {
+       "from": "type-specific-behaviors",
+       "to": "binding-engine",
+       "label": "links flowchart nodes via",
+       "kind": ""
+      },
+      {
+       "from": "type-specific-behaviors",
+       "to": "geometry-engine",
+       "label": "flood-fills via collision & shape",
+       "kind": "data"
+      },
+      {
+       "from": "shape-render-cache",
+       "to": "element-model",
+       "label": "reads geometry to draw",
+       "kind": "data"
+      },
+      {
+       "from": "shape-render-cache",
+       "to": "../editor-core",
+       "label": "canvas renders from",
+       "kind": ""
+      },
+      {
+       "from": "scene-container",
+       "to": "../editor-core",
+       "label": "supplies live elements to",
+       "kind": "data"
+      },
+      {
+       "from": "history-and-diffing",
+       "to": "../editor-core",
+       "label": "exposes increments for undo/redo",
+       "kind": "async"
+      },
+      {
+       "from": "geometry-engine",
+       "to": "../foundation-packages",
+       "label": "uses point/vector math from",
+       "kind": ""
+      },
+      {
+       "from": "binding-engine",
+       "to": "../editor-core",
+       "label": "reads hover/App state from",
+       "kind": "data"
+      }
+     ],
+     "flows": [
+      {
+       "id": "drag-resize-propagation",
+       "name": "What happens when a user drags or resizes a shape",
+       "summary": "A pointer drag cascades through geometry, binding, and history so bound text, arrows, and undo state all stay correct.",
+       "steps": [
+        {
+         "node": "interactive-editing",
+         "text": "A pointer move is translated into a position/size update for the dragged element(s)."
+        },
+        {
+         "from": "interactive-editing",
+         "to": "geometry-engine",
+         "text": "Bounds are recomputed and nearby shapes are hit-tested for binding or snapping."
+        },
+        {
+         "from": "interactive-editing",
+         "to": "binding-engine",
+         "text": "Bound arrows and labels are re-anchored, re-routing elbow arrows if needed."
+        },
+        {
+         "from": "binding-engine",
+         "to": "text-layout",
+         "text": "Any text label bound to the shape or arrow is repositioned and re-wrapped."
+        },
+        {
+         "from": "interactive-editing",
+         "to": "element-model",
+         "text": "The final change is applied through mutateElement, bumping version/versionNonce."
+        },
+        {
+         "from": "element-model",
+         "to": "history-and-diffing",
+         "text": "The change is captured as an undo/redo-able increment."
+        }
+       ]
+      },
+      {
+       "id": "create-new-element",
+       "name": "What happens when a user draws a new shape",
+       "summary": "A new element is constructed with defaults, added to the scene, ordered, and rendered.",
+       "steps": [
+        {
+         "node": "element-model",
+         "text": "newElement() builds the element with default geometry, style, and a fresh id/version."
+        },
+        {
+         "from": "element-model",
+         "to": "scene-container",
+         "text": "The element is added to the scene's live elements map."
+        },
+        {
+         "from": "scene-container",
+         "to": "ordering-and-structure",
+         "text": "A fractional index is assigned so array order stays in sync."
+        },
+        {
+         "from": "scene-container",
+         "to": "shape-render-cache",
+         "text": "A rough.js shape is generated and cached for drawing."
+        },
+        {
+         "from": "shape-render-cache",
+         "to": "../editor-core",
+         "text": "The canvas renders the new element on the next frame."
+        }
+       ]
+      },
+      {
+       "id": "undo-redo-cycle",
+       "name": "What happens when a user presses undo",
+       "summary": "The history engine replays the inverse delta against the scene to restore prior element state.",
+       "steps": [
+        {
+         "node": "history-and-diffing",
+         "text": "Pops the last captured increment off the undo stack."
+        },
+        {
+         "from": "history-and-diffing",
+         "to": "element-model",
+         "text": "Applies the delta's inverse to restore each element's prior field values."
+        },
+        {
+         "from": "element-model",
+         "to": "scene-container",
+         "text": "The restored elements are written back into the live elements map."
+        },
+        {
+         "from": "scene-container",
+         "to": "../editor-core",
+         "text": "The canvas re-renders with the restored state."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "foundation-packages",
+    "label": "Shared foundation packages",
+    "kind": "module",
+    "summary": "Small, dependency-free packages (math, common utils, laser-pointer, fractional-indexing, public API helpers) that everything else is built on.",
+    "details": "- @excalidraw/math: points, vectors, curves, angles.\n- @excalidraw/common: colors, constants, keys, the app event bus, generic utilities.\n- @excalidraw/utils and @excalidraw/laser-pointer are smaller, narrowly-scoped public packages.\n- @excalidraw/fractional-indexing is a vendored third-party algorithm used to order elements without full re-sorting.",
+    "files": [
+     "packages/common/src/index.ts",
+     "packages/math/src/index.ts",
+     "packages/utils/src/index.ts"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "common",
+       "label": "Common utilities",
+       "kind": "module",
+       "summary": "Grab-bag of constants, colors, keyboard codes, and small helpers that nearly every other package imports.",
+       "details": "Holds app-wide constants (default version, font families, env flags), the dark-mode color transform, keyboard-code tables, and a typed event emitter. editorInterface.ts tracks form factor (phone/tablet/desktop) and UI breakpoints; versionedSnapshotStore.ts is a small observable-value store. Several files (utils.ts, constants.ts, appEventBus.ts, font-metadata.ts) import *types only* from the editor and element packages above it, so it isn't fully dependency-free despite living in this group.",
+       "files": [
+        "packages/common/src/index.ts",
+        "packages/common/src/utils.ts",
+        "packages/common/src/constants.ts",
+        "packages/common/src/colors.ts",
+        "packages/common/src/keys.ts",
+        "packages/common/debug.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "constants",
+          "label": "Constants & config",
+          "kind": "module",
+          "summary": "Central table of app-wide constants: UI thresholds, cursor types, keyboard/custom event names, and font families.",
+          "details": "- Defines sizing thresholds (drag threshold, text wrap width, snap distances) used across drawing interactions.\n- Defines the EVENT enum used to register/dispatch DOM and custom events throughout the app.\n- Re-exports the default sticky-note background color from colors so callers only need one import.",
+          "files": [
+           "packages/common/src/constants.ts"
+          ]
+         },
+         {
+          "id": "colors",
+          "label": "Color palette & dark mode",
+          "kind": "module",
+          "summary": "Defines the app's color palette and the pixel math that inverts colors for dark-mode rendering.",
+          "details": "- COLOR_PALETTE is the single source of truth for element and UI colors.\n- Implements the CSS filter(invert + hue-rotate) math in JS so dark-mode colors can be precomputed and cached per color string.",
+          "files": [
+           "packages/common/src/colors.ts"
+          ]
+         },
+         {
+          "id": "platform-detection",
+          "label": "Platform detection",
+          "kind": "module",
+          "summary": "Detects OS, browser, and screen form factor (phone/tablet/desktop) from the user agent and viewport size.",
+          "details": "- Exposes isDarwin/isWindows/isIOS/isAndroid/isFirefox/isSafari/isBrave flags read once from navigator.\n- Classifies the current viewport into mobile/tablet/landscape breakpoints used to pick compact vs. full UI.",
+          "files": [
+           "packages/common/src/editorInterface.ts"
+          ]
+         },
+         {
+          "id": "keyboard-matching",
+          "label": "Keyboard matching",
+          "kind": "module",
+          "summary": "Maps keys and codes so keyboard shortcuts behave the same across keyboard layouts and languages.",
+          "details": "- KEYS/CODES tables name every shortcut-relevant key; CTRL_OR_CMD switches by OS.\n- matchKey() matches on event.key for Latin layouts and falls back to event.code for non-Latin layouts (Cyrillic, Greek, Hebrew, CJK, etc).",
+          "files": [
+           "packages/common/src/keys.ts"
+          ]
+         },
+         {
+          "id": "event-bus",
+          "label": "Event bus",
+          "kind": "module",
+          "summary": "A small pub/sub emitter, plus an app-wide event bus built on it with once-only and replay-last semantics.",
+          "details": "- Emitter is a plain subscribe/trigger/clear primitive.\n- AppEventBus adds per-event behavior (fire once vs. many, replay the last payload to late subscribers or not) and can hand back a Promise for a one-time event.",
+          "files": [
+           "packages/common/src/emitter.ts",
+           "packages/common/src/appEventBus.ts"
+          ]
+         },
+         {
+          "id": "async-control",
+          "label": "Async job control",
+          "kind": "module",
+          "summary": "Runs async jobs either strictly one-at-a-time (serial queue) or with bounded concurrency (promise pool).",
+          "details": "- Queue runs pushed jobs one after another, resolving each caller's own promise in order.\n- PromisePool wraps es6-promise-pool to run many jobs with a concurrency cap while preserving result order.",
+          "files": [
+           "packages/common/src/queue.ts",
+           "packages/common/src/promise-pool.ts"
+          ]
+         },
+         {
+          "id": "general-utils",
+          "label": "General utilities",
+          "kind": "module",
+          "summary": "Grab-bag of DOM checks, string/date formatting, and promise helpers that nearly every other file imports.",
+          "details": "- DOM helpers (isInputLike, isInteractive, isWritableElement) decide whether a click/keystroke target is a text-editing control.\n- Ships promiseTry/resolvablePromise used by the async-control queue, and env checks (isProdEnv, isTestEnv) used by event-bus and small-helpers.\n- Reads font and environment constants from the constants module.",
+          "files": [
+           "packages/common/src/utils.ts"
+          ]
+         },
+         {
+          "id": "small-helpers",
+          "label": "Small data helpers",
+          "kind": "module",
+          "summary": "Small single-purpose helpers: a priority heap, point/size math, URL sanitizing, seeded randomness, font metrics, and a versioned value store.",
+          "details": "- BinaryHeap: generic min-heap used where code needs a priority queue.\n- points.ts: bounding-size and rescale helpers over the shared GlobalPoint/LocalPoint types.\n- url.ts: sanitizes and validates links before they're used as href/src.\n- random.ts: seeded PRNGs for reproducible IDs and deterministic jitter.\n- font-metadata.ts: per-font metrics (ascender/descender/line-height) keyed by FONT_FAMILY.\n- versionedSnapshotStore.ts: a value store that bumps a version number on change and lets callers await the next change.\n- utility-types.ts: shared TypeScript utility types (ValueOf, Mutable, MaybePromise, etc) with no runtime code.",
+          "files": [
+           "packages/common/src/binary-heap.ts",
+           "packages/common/src/points.ts",
+           "packages/common/src/url.ts",
+           "packages/common/src/random.ts",
+           "packages/common/src/font-metadata.ts",
+           "packages/common/src/versionedSnapshotStore.ts",
+           "packages/common/src/utility-types.ts"
+          ]
+         },
+         {
+          "id": "debug-logger",
+          "label": "Perf debug logger",
+          "kind": "module",
+          "summary": "Opt-in performance logger that aggregates frame times and named timers and prints them to the console on an interval.",
+          "details": "- Static Debug class; callers start/stop named timers and it batches + averages them for periodic console.info output.\n- Also tracks animation-frame count for a rough FPS read.",
+          "files": [
+           "packages/common/debug.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "constants",
+          "to": "colors",
+          "label": "re-exports sticky-note color"
+         },
+         {
+          "from": "keyboard-matching",
+          "to": "platform-detection",
+          "label": "reads OS flag for modifier key"
+         },
+         {
+          "from": "event-bus",
+          "to": "general-utils",
+          "label": "checks dev vs prod before guarding"
+         },
+         {
+          "from": "async-control",
+          "to": "general-utils",
+          "label": "resolves jobs via shared promise helpers"
+         },
+         {
+          "from": "small-helpers",
+          "to": "general-utils",
+          "label": "escapes links & checks test mode"
+         },
+         {
+          "from": "general-utils",
+          "to": "constants",
+          "label": "reads font & env constants"
+         },
+         {
+          "from": "colors",
+          "to": "../math",
+          "label": "uses clamp & angle math"
+         },
+         {
+          "from": "small-helpers",
+          "to": "../math",
+          "label": "uses point & size math"
+         }
+        ],
+        "flows": [
+         {
+          "id": "once-event-guard",
+          "name": "What happens when a once-only app event fires",
+          "summary": "The event bus uses an environment check to guard against firing a one-time event twice, but only pays that cost in development.",
+          "steps": [
+           {
+            "node": "event-bus",
+            "text": "code emits an event declared cardinality: once"
+           },
+           {
+            "from": "event-bus",
+            "to": "general-utils",
+            "text": "calls isProdEnv() to decide whether to enforce the guard"
+           },
+           {
+            "node": "event-bus",
+            "text": "in dev, throws if that event already fired once; in prod, skips the check and clears listeners after firing"
+           }
+          ]
+         },
+         {
+          "id": "cross-layout-shortcut",
+          "name": "What happens when a keyboard shortcut is matched",
+          "summary": "A shortcut is matched against the pressed key, falling back to the physical key code on non-Latin keyboard layouts.",
+          "steps": [
+           {
+            "from": "keyboard-matching",
+            "to": "platform-detection",
+            "text": "reads isDarwin once to pick metaKey (Mac) vs ctrlKey (other OSes) as CTRL_OR_CMD"
+           },
+           {
+            "node": "keyboard-matching",
+            "text": "matchKey() compares event.key first; if the layout is non-Latin, it falls back to event.code via the KeyCodeMap"
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "id": "math",
+       "label": "Geometry math",
+       "kind": "module",
+       "summary": "Pure 2D geometry: points, vectors, curves, angles, and shapes used for drawing and collision.",
+       "details": "Covers lines, segments, curves, ellipses, polygons, and triangles, plus a PCA helper, each with its own test file. Branded types (Radians, Degrees) stop angle units from being mixed up by the type checker. It has no knowledge of Excalidraw elements or the canvas - just shapes and numbers.",
+       "files": [
+        "packages/math/src/index.ts",
+        "packages/math/src/point.ts",
+        "packages/math/src/curve.ts",
+        "packages/math/src/ellipse.ts",
+        "packages/math/src/types.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "public-api",
+          "label": "Public API surface",
+          "kind": "entry",
+          "summary": "The @excalidraw/math package entry point that re-exports every geometry helper so other packages can import one module.",
+          "details": "- index.ts re-exports angle, curve, ellipse, line, pca, point, polygon, range, rectangle, segment, triangle, types, utils and vector.\n- Published to npm as @excalidraw/math; package.json declares the build/type-gen scripts and the single dependency on @excalidraw/common.",
+          "files": [
+           "packages/math/src/index.ts",
+           "packages/math/package.json"
+          ]
+         },
+         {
+          "id": "types-and-branding",
+          "label": "Branded types",
+          "kind": "module",
+          "summary": "TypeScript types for points, vectors, lines and shapes, each branded so a local coordinate can't be mixed up with a global one at compile time.",
+          "details": "- GlobalPoint vs LocalPoint, Radians vs Degrees, Line vs LineSegment are distinct branded tuple types, not just aliases.\n- Every other file in this package imports from here for its input/output types.",
+          "files": [
+           "packages/math/src/types.ts"
+          ]
+         },
+         {
+          "id": "point-vector",
+          "label": "Points & vectors",
+          "kind": "module",
+          "summary": "Core arithmetic for 2D points and vectors: creation, distance, rotation, addition, scaling, dot and cross products.",
+          "details": "- The most-imported module in the package; nearly every shape and curve function builds on pointFrom/vector helpers here.\n- point.ts depends on angle.ts (degreesToRadians) and vector.ts; both lean on the shared PRECISION constant for float comparisons.",
+          "files": [
+           "packages/math/src/point.ts",
+           "packages/math/src/vector.ts"
+          ]
+         },
+         {
+          "id": "angle",
+          "label": "Angle conversions",
+          "kind": "module",
+          "summary": "Converts between degrees and radians and between cartesian and polar coordinates, normalizing angles into a 0-2pi range.",
+          "files": [
+           "packages/math/src/angle.ts"
+          ]
+         },
+         {
+          "id": "line-segment",
+          "label": "Lines & segments",
+          "kind": "module",
+          "summary": "Builds infinite lines and bounded line segments and finds where two of them intersect.",
+          "files": [
+           "packages/math/src/line.ts",
+           "packages/math/src/segment.ts"
+          ]
+         },
+         {
+          "id": "shapes",
+          "label": "Polygons, rectangles & triangles",
+          "kind": "module",
+          "summary": "Point-in-shape tests and edge intersections for rectangles, triangles and arbitrary closed polygons.",
+          "files": [
+           "packages/math/src/rectangle.ts",
+           "packages/math/src/triangle.ts",
+           "packages/math/src/polygon.ts"
+          ]
+         },
+         {
+          "id": "curve",
+          "label": "Bezier curves",
+          "kind": "module",
+          "summary": "Cubic Bezier curve math - points along a curve, tangents, arc length - using Legendre-Gauss quadrature for the numerical integration.",
+          "details": "- constants.ts holds the Legendre-Gauss N=24 abscissae/weights curve.ts uses to integrate arc length numerically rather than analytically.\n- Used for drawn (freedraw/arrow) elements where the stroke itself is a cubic Bezier.",
+          "files": [
+           "packages/math/src/curve.ts",
+           "packages/math/src/constants.ts"
+          ]
+         },
+         {
+          "id": "ellipse",
+          "label": "Ellipse geometry",
+          "kind": "module",
+          "summary": "Builds ellipses from a center and half-width/half-height, and tests where lines and segments cross an ellipse's boundary.",
+          "files": [
+           "packages/math/src/ellipse.ts"
+          ]
+         },
+         {
+          "id": "pca",
+          "label": "Principal axes (PCA)",
+          "kind": "module",
+          "summary": "Eigen-decomposes a set of points into a centroid and orthonormal major/minor axes, finding the natural orientation of a point cloud.",
+          "files": [
+           "packages/math/src/pca.ts"
+          ]
+         },
+         {
+          "id": "shared-helpers",
+          "label": "Numeric helpers & ranges",
+          "kind": "module",
+          "summary": "Small shared utilities - a float-comparison precision constant, clamp and rounding functions - plus the InclusiveRange type constructor.",
+          "files": [
+           "packages/math/src/utils.ts",
+           "packages/math/src/range.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "point-vector",
+          "to": "types-and-branding",
+          "label": "typed as branded Point/Vector",
+          "kind": ""
+         },
+         {
+          "from": "point-vector",
+          "to": "angle",
+          "label": "rotates points by radians",
+          "kind": ""
+         },
+         {
+          "from": "point-vector",
+          "to": "shared-helpers",
+          "label": "compares with precision constant",
+          "kind": ""
+         },
+         {
+          "from": "angle",
+          "to": "shared-helpers",
+          "label": "uses precision constant",
+          "kind": ""
+         },
+         {
+          "from": "line-segment",
+          "to": "point-vector",
+          "label": "builds lines from points",
+          "kind": ""
+         },
+         {
+          "from": "line-segment",
+          "to": "shared-helpers",
+          "label": "uses precision for intersections",
+          "kind": ""
+         },
+         {
+          "from": "shapes",
+          "to": "point-vector",
+          "label": "tests points against shapes",
+          "kind": ""
+         },
+         {
+          "from": "shapes",
+          "to": "line-segment",
+          "label": "intersects edges via segments",
+          "kind": ""
+         },
+         {
+          "from": "shapes",
+          "to": "shared-helpers",
+          "label": "uses point-equality precision",
+          "kind": ""
+         },
+         {
+          "from": "curve",
+          "to": "point-vector",
+          "label": "defines control points from",
+          "kind": ""
+         },
+         {
+          "from": "ellipse",
+          "to": "point-vector",
+          "label": "builds center/points from",
+          "kind": ""
+         },
+         {
+          "from": "ellipse",
+          "to": "shared-helpers",
+          "label": "uses precision for crossings",
+          "kind": ""
+         },
+         {
+          "from": "pca",
+          "to": "point-vector",
+          "label": "builds centroid/axes from points",
+          "kind": ""
+         },
+         {
+          "from": "shared-helpers",
+          "to": "../common",
+          "label": "borrows type-branding helper",
+          "kind": ""
+         },
+         {
+          "from": "curve",
+          "to": "../laser-pointer",
+          "label": "supplies curve/point math for strokes",
+          "kind": ""
+         },
+         {
+          "from": "public-api",
+          "to": "../utils",
+          "label": "supplies geometry for export rendering",
+          "kind": ""
+         }
+        ],
+        "flows": [
+         {
+          "id": "curve-collision-check",
+          "name": "What happens when a curved element needs a hit-test",
+          "summary": "A Bezier curve's control points get tested for overlap against a closed shape.",
+          "steps": [
+           {
+            "node": "point-vector",
+            "text": "A click or element position exists as a branded Point/Vector pair."
+           },
+           {
+            "from": "point-vector",
+            "to": "curve",
+            "text": "Curve functions consume those points as the four Bezier control points."
+           },
+           {
+            "from": "curve",
+            "to": "shapes",
+            "text": "Sampled curve points are checked with the polygon point-inclusion test."
+           }
+          ]
+         },
+         {
+          "id": "ellipse-intersection",
+          "name": "What happens when testing where a line crosses an ellipse",
+          "summary": "An angle is normalized, then used to rotate the test line into the ellipse's own frame before intersecting.",
+          "steps": [
+           {
+            "node": "angle",
+            "text": "A rotation angle gets normalized into the 0-2pi radian range."
+           },
+           {
+            "from": "angle",
+            "to": "ellipse",
+            "text": "The ellipse functions rotate the incoming line by that normalized angle."
+           },
+           {
+            "from": "ellipse",
+            "to": "line-segment",
+            "text": "The rotated problem reduces to a standard line/segment intersection."
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "id": "utils",
+       "label": "Public export helpers",
+       "kind": "module",
+       "summary": "The published @excalidraw/utils package: functions a host app calls to export a diagram to an image or SVG.",
+       "details": "Despite sitting in this 'foundation' group, it is a thin wrapper over the editor and element packages, not a dependency-free leaf. export.ts wraps the editor's own exportToCanvas/exportToSvg and clipboard-copy functions behind a simpler public API. shape.ts converts Excalidraw elements and rough.js drawables into pure geometric shapes for collision/overlap checks done outside the editor internals.",
+       "files": [
+        "packages/utils/src/index.ts",
+        "packages/utils/src/export.ts",
+        "packages/utils/src/shape.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "export-helpers",
+          "label": "Export functions",
+          "kind": "module",
+          "summary": "exportToBlob, exportToSvg, and clipboard-copy wrappers a host app calls to get an image out of a scene.",
+          "files": [
+           "packages/utils/src/export.ts"
+          ]
+         },
+         {
+          "id": "shape-helpers",
+          "label": "Shape conversion",
+          "kind": "module",
+          "summary": "Turns Excalidraw elements and rough.js drawables into plain geometric shapes for collision checks.",
+          "files": [
+           "packages/utils/src/shape.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "export-helpers",
+          "to": "../../editor-core",
+          "label": "wraps the editor's scene exporter",
+          "kind": ""
+         },
+         {
+          "from": "shape-helpers",
+          "to": "../../element-model",
+          "label": "converts elements for collision checks",
+          "kind": ""
+         }
+        ]
+       }
+      },
+      {
+       "id": "fractional-indexing",
+       "label": "Fractional indexing",
+       "kind": "module",
+       "summary": "Vendored algorithm that generates short, sortable order keys so elements can be reordered without renumbering everything.",
+       "details": "generateKeyBetween / generateNKeysBetween produce a base-62 string that sorts between two existing keys. Public-domain code (CC0) borrowed from the fractional-indexing npm package, not written in-house for Excalidraw.",
+       "files": [
+        "packages/fractional-indexing/src/index.ts"
+       ]
+      },
+      {
+       "id": "laser-pointer",
+       "label": "Laser pointer stroke",
+       "kind": "module",
+       "summary": "Turns a stream of pointer points into a smooth, tapered outline polygon for the laser-pointer tool.",
+       "details": "LaserPointer (state.ts) streamlines and simplifies incoming points, then math.ts and simplify.ts compute the outline polygon. Published standalone as @excalidraw/laser-pointer; also powers the editor's animated laser trail.",
+       "files": [
+        "packages/laser-pointer/src/state.ts",
+        "packages/laser-pointer/src/math.ts",
+        "packages/laser-pointer/src/simplify.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "stroke-state",
+          "label": "Stroke state",
+          "kind": "module",
+          "summary": "The LaserPointer class: collects points and options, and drives the streamline/simplify pipeline.",
+          "files": [
+           "packages/laser-pointer/src/state.ts"
+          ]
+         },
+         {
+          "id": "stroke-geometry",
+          "label": "Stroke geometry",
+          "kind": "module",
+          "summary": "Point math and Douglas-Peucker simplification used to build the final outline shape.",
+          "files": [
+           "packages/laser-pointer/src/math.ts",
+           "packages/laser-pointer/src/simplify.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "stroke-state",
+          "to": "stroke-geometry",
+          "label": "uses point math & simplification",
+          "kind": ""
+         }
+        ]
+       }
+      }
+     ],
+     "edges": [
+      {
+       "from": "common",
+       "to": "math",
+       "label": "uses geometry helpers",
+       "kind": ""
+      },
+      {
+       "from": "math",
+       "to": "common",
+       "label": "uses a branded-type helper",
+       "kind": ""
+      },
+      {
+       "from": "utils",
+       "to": "common",
+       "label": "imports shared constants",
+       "kind": ""
+      },
+      {
+       "from": "utils",
+       "to": "../editor-core",
+       "label": "wraps scene export & clipboard",
+       "kind": ""
+      },
+      {
+       "from": "utils",
+       "to": "../element-model",
+       "label": "reads element bounds & overlap",
+       "kind": "data"
+      },
+      {
+       "from": "laser-pointer",
+       "to": "../element-model",
+       "label": "renders stroke outlines for",
+       "kind": ""
+      },
+      {
+       "from": "laser-pointer",
+       "to": "../editor-core",
+       "label": "renders the laser trail",
+       "kind": ""
+      },
+      {
+       "from": "fractional-indexing",
+       "to": "../element-model",
+       "label": "orders elements by z-index",
+       "kind": ""
+      }
+     ],
+     "flows": [
+      {
+       "id": "order-elements",
+       "name": "What happens when an element moves in z-order",
+       "summary": "The element model asks for a new sort key instead of renumbering every element.",
+       "steps": [
+        {
+         "from": "../element-model",
+         "to": "fractional-indexing",
+         "text": "asks for a key that sorts between two neighboring elements"
+        },
+        {
+         "node": "fractional-indexing",
+         "text": "returns a short base-62 string that sits between the two existing keys"
+        }
+       ]
+      },
+      {
+       "id": "export-diagram",
+       "name": "What happens when a host app exports a diagram",
+       "summary": "The public utils package wraps the editor's own renderer and element data.",
+       "steps": [
+        {
+         "from": "../editor-core",
+         "to": "utils",
+         "text": "host app calls exportToBlob or exportToSvg"
+        },
+        {
+         "from": "utils",
+         "to": "../element-model",
+         "text": "filters to non-deleted elements and computes their bounds"
+        },
+        {
+         "node": "utils",
+         "text": "renders the result through the editor's own canvas/SVG exporter and returns it"
+        }
+       ]
+      },
+      {
+       "id": "laser-trail",
+       "name": "What happens while drawing with the laser-pointer tool",
+       "summary": "Pointer movement becomes a tapered outline redrawn every frame.",
+       "steps": [
+        {
+         "from": "../editor-core",
+         "to": "laser-pointer",
+         "text": "feeds each pointer-move point into a LaserPointer instance"
+        },
+        {
+         "node": "laser-pointer",
+         "text": "streamlines and simplifies the points, then builds the outline polygon"
+        },
+        {
+         "from": "laser-pointer",
+         "to": "../editor-core",
+         "text": "returns the outline so the trail can be redrawn"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "firebase-storage",
+    "label": "Firebase storage",
+    "kind": "external",
+    "summary": "Cloud storage and Firestore used by the hosted web app to persist encrypted scene files and uploaded images for shared rooms.",
+    "details": "Scenes and images are end-to-end encrypted in the browser before upload; Firebase never sees plaintext content. Configured via environment variables, not committed to the repo.",
+    "files": [
+     "excalidraw-app/data/firebase.ts"
+    ]
+   },
+   {
+    "id": "collab-relay-server",
+    "label": "Collaboration relay server",
+    "kind": "external",
+    "summary": "A separate socket.io server (not in this repository) that relays real-time element updates between everyone in the same room.",
+    "details": "The web app's Portal class is the client side of this relay. The server itself lives in Excalidraw's companion 'excalidraw-room' project.",
+    "files": [
+     "excalidraw-app/collab/Portal.tsx"
+    ]
+   },
+   {
+    "id": "ai-diagram-service",
+    "label": "AI diagram service",
+    "kind": "external",
+    "summary": "A hosted LLM endpoint the editor streams prompts to for the 'Text to Diagram' feature, returning Mermaid syntax or chat replies.",
+    "details": "Reached over a streaming (SSE-style) fetch from TTDStreamFetch.ts; the service itself is external to the repo.",
+    "files": [
+     "packages/excalidraw/components/TTDDialog/utils/TTDStreamFetch.ts"
+    ]
+   },
+   {
+    "id": "dev-docs-site",
+    "label": "Documentation site",
+    "kind": "doc",
+    "summary": "A Docusaurus site (docs.excalidraw.com) documenting the public @excalidraw/excalidraw API, props, and utilities.",
+    "files": [
+     "dev-docs/docusaurus.config.js",
+     "dev-docs/package.json"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "homepage",
+       "label": "Docs homepage",
+       "kind": "ui",
+       "summary": "The docs.excalidraw.com landing page: a hero banner plus feature cards that route visitors into the API reference.",
+       "details": "- Built as a static Docusaurus page (src/pages/index.tsx) plus a Homepage feature-card component.\n- Pure navigation/marketing page; holds no API content itself.",
+       "files": [
+        "dev-docs/src/pages/index.tsx",
+        "dev-docs/src/components/Homepage/index.tsx",
+        "dev-docs/src/pages/index.module.css"
+       ]
+      },
+      {
+       "id": "docs-content",
+       "label": "Docs content",
+       "kind": "doc",
+       "summary": "All markdown/MDX pages documenting the public @excalidraw/excalidraw component API and the separate @excalidraw/mermaid-to-excalidraw parser package.",
+       "details": "- Covers installation, props, children components (MainMenu, Sidebar, Footer, WelcomeScreen, LiveCollaborationTrigger), utils (export, restore), and the element-skeleton API for the editor.\n- Separately documents the mermaid-to-excalidraw package's public API and how its parser/converter works internally — a distinct npm package not otherwise modeled in this map.\n- Also holds general codebase notes (JSON scene format, frame ordering) and contributor-onboarding pages.\n- Organized entirely by dev-docs/sidebars.js, which hand-lists every page and its nesting.",
+       "children": {
+        "nodes": [
+         {
+          "id": "intro-guides",
+          "label": "Intro guides",
+          "kind": "doc",
+          "summary": "Entry-point pages that send a newcomer to excalidraw.com, explain local dev setup, and cover the PR contribution process.",
+          "files": [
+           "dev-docs/docs/introduction/get-started.mdx",
+           "dev-docs/docs/introduction/development.mdx",
+           "dev-docs/docs/introduction/contributing.mdx"
+          ]
+         },
+         {
+          "id": "excalidraw-usage-docs",
+          "label": "Package usage docs",
+          "kind": "doc",
+          "summary": "How to install, bundle, style, and build the @excalidraw/excalidraw component, plus an FAQ on embedding it.",
+          "details": "- installation.mdx and integration.mdx cover npm/yarn install and ES6 module bundling.\n- customizing-styles.mdx documents the CSS variables used to theme the editor.\n- faq.mdx answers common questions, e.g. that collaboration is not built in and is host-app specific.",
+          "files": [
+           "dev-docs/docs/@excalidraw/excalidraw/installation.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/integration.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/customizing-styles.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/development.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/faq.mdx"
+          ]
+         },
+         {
+          "id": "excalidraw-api-reference",
+          "label": "API reference",
+          "kind": "doc",
+          "summary": "Reference for every prop, the imperative excalidrawAPI handle, constants, and the simplified element-skeleton format.",
+          "details": "- api-intro.mdx splits the API into props, imperative API, and utility functions.\n- excalidraw-api.mdx covers the excalidrawAPI object stored via the onReady-style callback.\n- excalidraw-element-skeleton.mdx documents the simplified API for generating elements programmatically.",
+          "files": [
+           "dev-docs/docs/@excalidraw/excalidraw/api/api-intro.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/props/props.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/props/excalidraw-api.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/props/initialdata.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/props/ui-options.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/props/render-props.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/constants.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/excalidraw-element-skeleton.mdx"
+          ]
+         },
+         {
+          "id": "excalidraw-children-components",
+          "label": "Children components docs",
+          "kind": "doc",
+          "summary": "Docs for the optional child components used to customize the editor's UI: MainMenu, Sidebar, WelcomeScreen, Footer, and the live-collaboration button.",
+          "files": [
+           "dev-docs/docs/@excalidraw/excalidraw/api/children-components/children-components-intro.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/children-components/main-menu.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/children-components/sidebar.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/children-components/welcome-screen.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/children-components/footer.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/children-components/live-collaboration-trigger.mdx"
+          ]
+         },
+         {
+          "id": "excalidraw-utils-docs",
+          "label": "Utility functions docs",
+          "kind": "doc",
+          "summary": "Docs for the pure helper functions the package exports, such as export-to-canvas/svg and restoring saved app state.",
+          "details": "- utils-intro.md and restore.mdx point out to the package's own source (packages/excalidraw/data/restore.ts, i18n.ts, json.ts), which is outside this scope.\n- export.mdx documents exportToCanvas/exportToSvg/exportToBlob.",
+          "files": [
+           "dev-docs/docs/@excalidraw/excalidraw/api/utils/utils-intro.md",
+           "dev-docs/docs/@excalidraw/excalidraw/api/utils/export.mdx",
+           "dev-docs/docs/@excalidraw/excalidraw/api/utils/restore.mdx"
+          ]
+         },
+         {
+          "id": "mermaid-to-excalidraw-docs",
+          "label": "Mermaid parser docs",
+          "kind": "doc",
+          "summary": "Separate documentation tree for the @excalidraw/mermaid-to-excalidraw package: install, its two-step API, and how its parser works internally.",
+          "details": "- api.mdx: the package works in two steps (parse mermaid text, then render to Excalidraw elements).\n- codebase/ pages explain the parser's structure and how to add support for a new diagram type.",
+          "files": [
+           "dev-docs/docs/@excalidraw/mermaid-to-excalidraw/installation.mdx",
+           "dev-docs/docs/@excalidraw/mermaid-to-excalidraw/api.mdx",
+           "dev-docs/docs/@excalidraw/mermaid-to-excalidraw/development.mdx",
+           "dev-docs/docs/@excalidraw/mermaid-to-excalidraw/codebase/codebase.mdx",
+           "dev-docs/docs/@excalidraw/mermaid-to-excalidraw/codebase/new-diagram-type.mdx",
+           "dev-docs/docs/@excalidraw/mermaid-to-excalidraw/codebase/parser/parser.mdx",
+           "dev-docs/docs/@excalidraw/mermaid-to-excalidraw/codebase/parser/flowchart.mdx"
+          ]
+         },
+         {
+          "id": "codebase-internals-docs",
+          "label": "Data-format notes",
+          "kind": "doc",
+          "summary": "Notes on the Excalidraw JSON data format and frame-ordering rules, aimed at people working inside the core codebase.",
+          "files": [
+           "dev-docs/docs/codebase/json-schema.mdx",
+           "dev-docs/docs/codebase/frames.mdx"
+          ]
+         },
+         {
+          "id": "doc-assets",
+          "label": "Doc screenshots",
+          "kind": "data",
+          "summary": "Screenshots embedded in the FAQ and render-props pages to illustrate fingerprinting warnings and a debug stats overlay.",
+          "files": [
+           "dev-docs/docs/assets/brave-shield.png",
+           "dev-docs/docs/assets/aggressive-block-fingerprint.png",
+           "dev-docs/docs/assets/block-fingerprint.png",
+           "dev-docs/docs/assets/nerd-stats.png"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "excalidraw-usage-docs",
+          "to": "../homepage",
+          "label": "linked from feature cards"
+         },
+         {
+          "from": "intro-guides",
+          "to": "mermaid-to-excalidraw-docs",
+          "label": "points to package-specific dev setup"
+         },
+         {
+          "from": "excalidraw-usage-docs",
+          "to": "excalidraw-api-reference",
+          "label": "leads into full prop reference"
+         },
+         {
+          "from": "excalidraw-api-reference",
+          "to": "excalidraw-children-components",
+          "label": "covers children as a prop category"
+         },
+         {
+          "from": "excalidraw-api-reference",
+          "to": "../live-playground",
+          "label": "embeds runnable prop examples"
+         },
+         {
+          "from": "excalidraw-children-components",
+          "to": "../live-playground",
+          "label": "demos each component live"
+         },
+         {
+          "from": "excalidraw-usage-docs",
+          "to": "doc-assets",
+          "label": "embeds fingerprint screenshots"
+         },
+         {
+          "from": "excalidraw-api-reference",
+          "to": "doc-assets",
+          "label": "embeds stats overlay screenshot"
+         },
+         {
+          "from": "excalidraw-utils-docs",
+          "to": "codebase-internals-docs",
+          "label": "export/restore operate on this JSON format"
+         }
+        ],
+        "flows": [
+         {
+          "id": "developer-looks-up-a-prop",
+          "name": "What happens when a developer looks up how to use Excalidraw",
+          "summary": "A developer goes from the homepage to installing the package to trying a prop in a live example.",
+          "steps": [
+           {
+            "from": "../homepage",
+            "to": "excalidraw-usage-docs",
+            "text": "Developer clicks a feature card into the installation and integration guide."
+           },
+           {
+            "from": "excalidraw-usage-docs",
+            "to": "excalidraw-api-reference",
+            "text": "Guide links into the full props and imperative API reference."
+           },
+           {
+            "node": "excalidraw-api-reference",
+            "text": "Reference explains the prop, including any children component or constant it depends on."
+           },
+           {
+            "from": "excalidraw-api-reference",
+            "to": "../live-playground",
+            "text": "An embedded code block boots a real editor so the developer can try the prop live."
+           }
+          ]
+         },
+         {
+          "id": "contributor-sets-up-mermaid-package",
+          "name": "What happens when a contributor works on the mermaid parser",
+          "summary": "A contributor follows the general dev setup, then the mermaid-to-excalidraw package's own build and parser internals.",
+          "steps": [
+           {
+            "node": "intro-guides",
+            "text": "Contributing guide explains the PR process and the monorepo's general local-dev setup."
+           },
+           {
+            "from": "intro-guides",
+            "to": "mermaid-to-excalidraw-docs",
+            "text": "Contributor follows the package-specific development page to build @excalidraw/mermaid-to-excalidraw."
+           },
+           {
+            "node": "mermaid-to-excalidraw-docs",
+            "text": "Codebase pages walk through the two-step parse-then-render API and how to add a new diagram type to the flowchart parser."
+           }
+          ]
+         }
+        ]
+       },
+       "files": [
+        "dev-docs/docs/"
+       ]
+      },
+      {
+       "id": "live-playground",
+       "label": "Live code playground",
+       "kind": "module",
+       "summary": "Lets a doc page embed a real, runnable Excalidraw editor inline as a live code example.",
+       "details": "- Wires react-live's scope (ReactLiveScope) so MDX code blocks can render an actual <Excalidraw/> component, not just a snippet.\n- In the browser it points the editor at a pinned CDN build (esm.sh @excalidraw/excalidraw@0.18.0) rather than the locally built editor-core package, so a live example can lag behind current repo code.\n- MDXComponents.js wires this scope into every doc page's code blocks via the theme-live-codeblock plugin.",
+       "files": [
+        "dev-docs/src/theme/ReactLiveScope/index.js",
+        "dev-docs/src/theme/MDXComponents.js",
+        "dev-docs/src/initialData.js"
+       ]
+      },
+      {
+       "id": "docusaurus-build",
+       "label": "Docusaurus config",
+       "kind": "config",
+       "summary": "Docusaurus configuration that turns the markdown docs into a navigable, searchable static site.",
+       "details": "- docusaurus.config.js sets the site title/nav/footer, wires Algolia-powered search (credentials live there, not reproduced here), and loads the live-codeblock and sass plugins.\n- sidebars.js hand-authors the full left-nav tree and page ordering.\n- package.json pins Docusaurus 2.2.0 and the @excalidraw/excalidraw dependency the live playground is built against.",
+       "files": [
+        "dev-docs/docusaurus.config.js",
+        "dev-docs/sidebars.js",
+        "dev-docs/package.json"
+       ]
+      },
+      {
+       "id": "site-hosting",
+       "label": "Site hosting",
+       "kind": "external",
+       "summary": "Vercel project that builds and serves the dev-docs site at docs.excalidraw.com, independent of the main repo's GitHub Actions pipeline.",
+       "details": "- vercel.json auto-deploys only on pushes to master, running 'yarn install' and publishing the 'build' output directory.\n- A secondary manual path exists via 'yarn deploy' (README.md), which can instead push the built site to a GitHub Pages gh-pages branch.",
+       "files": [
+        "dev-docs/vercel.json",
+        "dev-docs/README.md"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "../end-user",
+       "to": "homepage",
+       "label": "visits docs.excalidraw.com",
+       "kind": ""
+      },
+      {
+       "from": "homepage",
+       "to": "docs-content",
+       "label": "links to API reference",
+       "kind": ""
+      },
+      {
+       "from": "../end-user",
+       "to": "docs-content",
+       "label": "searches directly for a prop/API",
+       "kind": ""
+      },
+      {
+       "from": "docs-content",
+       "to": "live-playground",
+       "label": "embeds runnable examples via",
+       "kind": ""
+      },
+      {
+       "from": "live-playground",
+       "to": "../editor-core",
+       "label": "loads published build from CDN",
+       "kind": "data"
+      },
+      {
+       "from": "docs-content",
+       "to": "../editor-core",
+       "label": "documents props, components & utils of",
+       "kind": ""
+      },
+      {
+       "from": "docusaurus-build",
+       "to": "docs-content",
+       "label": "renders pages per sidebar structure",
+       "kind": ""
+      },
+      {
+       "from": "docusaurus-build",
+       "to": "homepage",
+       "label": "configures nav, theme & search for",
+       "kind": ""
+      },
+      {
+       "from": "docusaurus-build",
+       "to": "site-hosting",
+       "label": "static build gets deployed by",
+       "kind": ""
+      }
+     ],
+     "flows": [
+      {
+       "id": "reader-finds-api",
+       "name": "What happens when a developer looks up an Excalidraw prop",
+       "summary": "A visitor lands on the docs site and ends up running a live example of the component they're reading about.",
+       "steps": [
+        {
+         "from": "../end-user",
+         "to": "homepage",
+         "text": "Developer opens docs.excalidraw.com looking for integration help."
+        },
+        {
+         "from": "homepage",
+         "to": "docs-content",
+         "text": "Clicks into the sidebar-organized API reference."
+        },
+        {
+         "node": "docs-content",
+         "text": "Finds the prop or utility they need, often shown with a runnable example inline."
+        },
+        {
+         "from": "docs-content",
+         "to": "live-playground",
+         "text": "The live example box renders using the embedded playground."
+        },
+        {
+         "from": "live-playground",
+         "to": "../editor-core",
+         "text": "Playground loads the real Excalidraw component from the published npm build via CDN."
+        }
+       ]
+      },
+      {
+       "id": "build-and-deploy",
+       "name": "What happens when a doc change ships",
+       "summary": "A merged docs edit becomes a live page without touching the main repo's CI pipeline.",
+       "steps": [
+        {
+         "node": "docusaurus-build",
+         "text": "A docs PR merges to master; Docusaurus is configured to statically build the site from the markdown plus this config."
+        },
+        {
+         "from": "docusaurus-build",
+         "to": "site-hosting",
+         "text": "Vercel's git integration detects the push and runs the build/deploy automatically."
+        },
+        {
+         "node": "site-hosting",
+         "text": "Vercel serves the rebuilt static site at docs.excalidraw.com."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "build-release-pipeline",
+    "label": "Build, test & release pipeline",
+    "kind": "process",
+    "summary": "GitHub Actions workflows and Node scripts that lint, type-check, test, build each package, and publish releases and Docker images.",
+    "details": "- CI (.github/workflows) runs lint, typecheck, vitest, and size-limit checks on every push/PR.\n- scripts/release.js publishes the @excalidraw/* packages to npm; scripts/buildWasm.js and the woff2 scripts build font-subsetting WASM used by editor-core.",
+    "files": [
+     "scripts/release.js",
+     ".github/workflows/test.yml",
+     "package.json"
+    ],
+    "children": {
+     "direction": "RIGHT",
+     "nodes": [
+      {
+       "id": "maintainer",
+       "label": "Project maintainer",
+       "kind": "person",
+       "summary": "The human who opens and merges pull requests, and pushes to the release branch to ship a new version.",
+       "details": "- Every gate and pipeline in this part exists to protect or automate something this person would otherwise do by hand.\n- Interactive prompts in the release script (commit? publish?) exist for when this person runs it locally instead of CI."
+      },
+      {
+       "id": "pr-quality-gates",
+       "label": "PR quality gates",
+       "kind": "process",
+       "summary": "Lint, type-check, unit tests, a coverage report, and a bundle-size check that all run on every pull request.",
+       "details": "- lint.yml runs test:other, test:code and test:typecheck.\n- test-coverage-pr.yml runs the Vitest suite with coverage and posts the report as a PR comment.\n- size-limit.yml builds packages/excalidraw and comments the bundle-size delta.\n- cancel.yml cancels a run's older in-flight jobs when a new commit supersedes it, on both PRs and pushes to release.",
+       "files": [
+        ".github/workflows/lint.yml",
+        ".github/workflows/test-coverage-pr.yml",
+        ".github/workflows/size-limit.yml",
+        ".github/workflows/cancel.yml"
+       ]
+      },
+      {
+       "id": "pr-title-gatekeeper",
+       "label": "PR title gatekeeper",
+       "kind": "process",
+       "summary": "Rejects pull requests whose title isn't a valid conventional-commit, and auto-labels the PR by the scope named in that title.",
+       "details": "- Required scope (app, editor, packages/excalidraw, packages/utils, docker, repo) must appear in parentheses in the title.\n- A second job maps that scope to an s-app/s-editor/s-package label via the GitHub API, replacing any stale scope label.",
+       "files": [
+        ".github/workflows/semantic-pr-title.yml"
+       ]
+      },
+      {
+       "id": "post-merge-tests",
+       "label": "Post-merge test run",
+       "kind": "process",
+       "summary": "Re-runs the full app test suite on every push to master, after a PR has already landed.",
+       "files": [
+        ".github/workflows/test.yml"
+       ]
+      },
+      {
+       "id": "package-builders",
+       "label": "Package build scripts",
+       "kind": "module",
+       "summary": "Node/esbuild scripts that compile each @excalidraw package and the hosted app, shared by CI, the size check, and the release script.",
+       "details": "- buildPackage.js / buildBase.js / buildUtils.js: esbuild bundles (dev + minified prod ESM), with a Sass plugin that resolves relative @use/@forward paths.\n- buildWasm.js: converts the woff2 and harfbuzz-subset WASM binaries into base64-embedded JS, for font subsetting.\n- build-node.js: a Cairo-dependent native build path for the app.\n- build-version.js: stamps build/version.json and index.html with the commit hash and date at app build time.",
+       "files": [
+        "scripts/buildPackage.js",
+        "scripts/buildBase.js",
+        "scripts/buildUtils.js",
+        "scripts/buildWasm.js",
+        "scripts/build-node.js",
+        "scripts/build-version.js"
+       ]
+      },
+      {
+       "id": "release-publisher",
+       "label": "Release publisher",
+       "kind": "process",
+       "summary": "On a push to the release branch, rebuilds every package, bumps versions, updates the changelog, and publishes to npm.",
+       "details": "- autorelease-excalidraw.yml authenticates to npm with a secret token, then runs `yarn release --tag=next --non-interactive`.\n- release.js (scripts/release.js) does the real work: yarn install, clean build artifacts, build:esm each package, write new versions into every package.json (and cross-package @excalidraw/* deps), then `yarn publish`.\n- For a tag=latest run it also calls updateChangelog.js, which mines conventional-commit messages since the last release commit into CHANGELOG.md.\n- Run without --non-interactive (i.e. by a maintainer locally) it prompts before committing and before publishing.",
+       "files": [
+        ".github/workflows/autorelease-excalidraw.yml",
+        "scripts/release.js",
+        "scripts/updateChangelog.js"
+       ]
+      },
+      {
+       "id": "docker-image-pipeline",
+       "label": "Docker image pipeline",
+       "kind": "process",
+       "summary": "Builds the self-hostable Docker image on push to release, then pushes a multi-arch image to DockerHub.",
+       "details": "- build-docker.yml does a plain `docker build` as a smoke test.\n- publish-docker.yml logs into DockerHub with a secret username/password, then builds and pushes linux/amd64, arm64 and arm/v7 images tagged excalidraw/excalidraw:latest via Buildx + QEMU.",
+       "files": [
+        ".github/workflows/build-docker.yml",
+        ".github/workflows/publish-docker.yml"
+       ]
+      },
+      {
+       "id": "sentry-release-tracker",
+       "label": "Sentry release tracker",
+       "kind": "process",
+       "summary": "Builds the web app, uploads its sourcemaps, and registers a new Sentry release on every push to release.",
+       "details": "Ties production error reports back to real source lines by associating the build's sourcemaps and commit range with a named Sentry release; org/project identifiers and the auth token are stored as repo secrets.",
+       "files": [
+        ".github/workflows/sentry-production.yml"
+       ]
+      },
+      {
+       "id": "locale-coverage-bot",
+       "label": "Locale coverage bot",
+       "kind": "process",
+       "summary": "On pushes to the translation branch, recomputes per-language translation percentages and posts the summary into the Crowdin PR description.",
+       "details": "- build-locales-coverage.js writes packages/excalidraw/locales/percentages.json; if it changed, the workflow commits it as the Excalidraw Bot.\n- locales-coverage-description.js renders a human-readable summary that gets written back onto the Crowdin-managed PR's description via a bot token.",
+       "files": [
+        ".github/workflows/locales-coverage.yml",
+        "scripts/build-locales-coverage.js",
+        "scripts/locales-coverage-description.js"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "maintainer",
+       "to": "pr-quality-gates",
+       "label": "opens a pull request",
+       "kind": ""
+      },
+      {
+       "from": "maintainer",
+       "to": "pr-title-gatekeeper",
+       "label": "titles the pull request",
+       "kind": ""
+      },
+      {
+       "from": "maintainer",
+       "to": "release-publisher",
+       "label": "pushes to the release branch",
+       "kind": "async"
+      },
+      {
+       "from": "pr-quality-gates",
+       "to": "package-builders",
+       "label": "builds packages to size/test them",
+       "kind": ""
+      },
+      {
+       "from": "release-publisher",
+       "to": "package-builders",
+       "label": "rebuilds every package via",
+       "kind": ""
+      },
+      {
+       "from": "release-publisher",
+       "to": "../editor-core",
+       "label": "bumps version & publishes",
+       "kind": ""
+      },
+      {
+       "from": "release-publisher",
+       "to": "../element-model",
+       "label": "bumps version & publishes",
+       "kind": ""
+      },
+      {
+       "from": "release-publisher",
+       "to": "../foundation-packages",
+       "label": "bumps version & publishes",
+       "kind": ""
+      },
+      {
+       "from": "package-builders",
+       "to": "../foundation-packages",
+       "label": "compiles with esbuild",
+       "kind": ""
+      },
+      {
+       "from": "post-merge-tests",
+       "to": "../web-app",
+       "label": "re-tests after merge",
+       "kind": ""
+      },
+      {
+       "from": "docker-image-pipeline",
+       "to": "../web-app",
+       "label": "packages into self-host image",
+       "kind": ""
+      },
+      {
+       "from": "sentry-release-tracker",
+       "to": "../web-app",
+       "label": "builds & uploads sourcemaps for",
+       "kind": "data"
+      },
+      {
+       "from": "locale-coverage-bot",
+       "to": "../editor-core",
+       "label": "writes translation coverage data into",
+       "kind": "data"
+      }
+     ],
+     "flows": [
+      {
+       "id": "pr-to-merge",
+       "name": "What happens when a pull request is opened",
+       "summary": "Every PR has to clear title validation and the quality gates before it can merge.",
+       "steps": [
+        {
+         "node": "maintainer",
+         "text": "Opens a pull request against master."
+        },
+        {
+         "from": "maintainer",
+         "to": "pr-title-gatekeeper",
+         "text": "Title is parsed for a conventional-commit type and scope; a mismatch fails the check."
+        },
+        {
+         "from": "maintainer",
+         "to": "pr-quality-gates",
+         "text": "Lint, typecheck, unit tests, coverage, and bundle size run in parallel."
+        },
+        {
+         "node": "pr-quality-gates",
+         "text": "A newer push cancels the previous run's jobs so CI doesn't queue stale work."
+        }
+       ]
+      },
+      {
+       "id": "release-to-npm-and-docker",
+       "name": "What happens when a release ships",
+       "summary": "A single push to the release branch fans out into an npm publish, a Docker image, and a Sentry release.",
+       "steps": [
+        {
+         "from": "maintainer",
+         "to": "release-publisher",
+         "text": "Release branch receives the push (usually a merge from master)."
+        },
+        {
+         "from": "release-publisher",
+         "to": "package-builders",
+         "text": "Every @excalidraw package is rebuilt from source."
+        },
+        {
+         "node": "release-publisher",
+         "text": "Versions are bumped, the changelog is updated, and the packages are published to npm under the 'next' tag."
+        },
+        {
+         "from": "docker-image-pipeline",
+         "to": "../web-app",
+         "text": "The same push triggers a separate workflow that builds and pushes the self-host Docker image."
+        },
+        {
+         "from": "sentry-release-tracker",
+         "to": "../web-app",
+         "text": "...and a third workflow builds the web app and registers its sourcemaps with Sentry."
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "edges": [
+   {
+    "from": "end-user",
+    "to": "web-app",
+    "label": "draws & shares diagrams"
+   },
+   {
+    "from": "web-app",
+    "to": "editor-core",
+    "label": "embeds as React component"
+   },
+   {
+    "from": "editor-core",
+    "to": "element-model",
+    "label": "creates & mutates elements",
+    "kind": "data"
+   },
+   {
+    "from": "editor-core",
+    "to": "foundation-packages",
+    "label": "uses math & shared utils"
+   },
+   {
+    "from": "element-model",
+    "to": "foundation-packages",
+    "label": "uses geometry primitives"
+   },
+   {
+    "from": "web-app",
+    "to": "firebase-storage",
+    "label": "stores encrypted scenes & files",
+    "kind": "data"
+   },
+   {
+    "from": "web-app",
+    "to": "collab-relay-server",
+    "label": "broadcasts scene updates",
+    "kind": "async"
+   },
+   {
+    "from": "collab-relay-server",
+    "to": "web-app",
+    "label": "relays peers' edits",
+    "kind": "async"
+   },
+   {
+    "from": "editor-core",
+    "to": "ai-diagram-service",
+    "label": "streams diagram prompts",
+    "kind": "data"
+   },
+   {
+    "from": "dev-docs-site",
+    "to": "editor-core",
+    "label": "documents public API",
+    "kind": "data"
+   },
+   {
+    "from": "build-release-pipeline",
+    "to": "foundation-packages",
+    "label": "builds ESM bundles"
+   },
+   {
+    "from": "build-release-pipeline",
+    "to": "element-model",
+    "label": "builds ESM bundles"
+   },
+   {
+    "from": "build-release-pipeline",
+    "to": "editor-core",
+    "label": "builds & publishes to npm"
+   },
+   {
+    "from": "build-release-pipeline",
+    "to": "web-app",
+    "label": "builds & deploys the app"
+   }
+  ],
+  "flows": [
+   {
+    "id": "draw-and-edit",
+    "name": "What happens when you draw on the canvas",
+    "summary": "A single-user edit loop from pointer input to a persisted scene.",
+    "steps": [
+     {
+      "from": "end-user",
+      "to": "web-app",
+      "text": "draws shapes, types text, or pastes a diagram into the browser window"
+     },
+     {
+      "from": "web-app",
+      "to": "editor-core",
+      "text": "forwards the event into the mounted <Excalidraw> component"
+     },
+     {
+      "from": "editor-core",
+      "to": "element-model",
+      "text": "creates or mutates element objects (binding, resizing, grouping as needed)"
+     },
+     {
+      "node": "web-app",
+      "text": "autosaves the updated scene to the browser's local storage"
+     }
+    ]
+   },
+   {
+    "id": "live-collaboration",
+    "name": "What happens in a live collaboration session",
+    "summary": "How a shared room keeps everyone's canvas in sync.",
+    "steps": [
+     {
+      "from": "end-user",
+      "to": "web-app",
+      "text": "clicks 'Live collaboration' and shares the generated room link"
+     },
+     {
+      "from": "web-app",
+      "to": "collab-relay-server",
+      "text": "opens an encrypted socket.io connection and joins the room"
+     },
+     {
+      "from": "web-app",
+      "to": "firebase-storage",
+      "text": "uploads the encrypted scene and any image files"
+     },
+     {
+      "from": "collab-relay-server",
+      "to": "web-app",
+      "text": "relays other peers' element updates back down the socket"
+     },
+     {
+      "node": "web-app",
+      "text": "reconciles incoming elements against local history and re-renders"
+     }
+    ]
+   },
+   {
+    "id": "ai-text-to-diagram",
+    "name": "What happens when you ask the AI to draw a diagram",
+    "summary": "Turning a text prompt into native canvas elements.",
+    "steps": [
+     {
+      "from": "end-user",
+      "to": "editor-core",
+      "text": "opens the 'Text to Diagram' dialog and describes what to draw"
+     },
+     {
+      "from": "editor-core",
+      "to": "ai-diagram-service",
+      "text": "streams the prompt to the AI endpoint over a streaming fetch"
+     },
+     {
+      "from": "ai-diagram-service",
+      "to": "editor-core",
+      "text": "streams back Mermaid syntax or a chat reply"
+     },
+     {
+      "node": "editor-core",
+      "text": "converts the Mermaid diagram into native Excalidraw elements and inserts them"
+     }
+    ]
+   },
+   {
+    "id": "build-and-release",
+    "name": "What happens when the project is built and released",
+    "summary": "The CI and publishing pipeline behind every push and release.",
+    "steps": [
+     {
+      "node": "build-release-pipeline",
+      "text": "GitHub Actions lints, type-checks, and runs the vitest suite on every push or PR"
+     },
+     {
+      "from": "build-release-pipeline",
+      "to": "foundation-packages",
+      "text": "builds the common/math/utils ESM bundles with esbuild"
+     },
+     {
+      "from": "build-release-pipeline",
+      "to": "element-model",
+      "text": "builds the element package's ESM bundle"
+     },
+     {
+      "from": "build-release-pipeline",
+      "to": "editor-core",
+      "text": "builds and publishes @excalidraw/excalidraw to npm"
+     },
+     {
+      "from": "build-release-pipeline",
+      "to": "web-app",
+      "text": "builds the Vite bundle and the Docker image for excalidraw.com"
+     }
+    ]
+   }
+  ]
+ },
+ "source": "https://github.com/excalidraw/excalidraw",
+ "generated": "2026-10-04 12:15",
+ "generator": "ai",
+ "commit": "ed10ac7dca7e40f3f4a31269b4bfba980d0db41e",
+ "coverage": "Mapped from the repository's contents only. User-level settings, connectors (MCP servers configured outside the repo), scheduled jobs, and secrets usually live outside a repository, so they are not visible here.",
+ "tool": {
+  "name": "Exploded View",
+  "version": "0.2.0",
+  "url": "https://github.com/tmedia-csb/exploded-view"
+ },
+ "repo_url": "https://github.com/excalidraw/excalidraw"
+}

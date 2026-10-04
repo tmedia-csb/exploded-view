@@ -1,0 +1,22 @@
+{
+  "name": "exploded-view",
+  "displayName": "Exploded View",
+  "version": "0.2.0",
+  "description": "Map a codebase or an agent harness into an interactive HTML diagram of how it works: drill-down parts, connections, and workflows you can play step by step. Your own Claude Code session writes the map; nothing is hosted.",
+  "author": {
+    "name": "Scott Blevins",
+    "url": "https://github.com/tmedia-csb"
+  },
+  "homepage": "https://github.com/tmedia-csb/exploded-view",
+  "repository": "https://github.com/tmedia-csb/exploded-view",
+  "license": "MIT",
+  "keywords": [
+    "architecture",
+    "diagram",
+    "codebase",
+    "visualization",
+    "harness",
+    "onboarding",
+    "documentation"
+  ]
+}

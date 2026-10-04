@@ -1,0 +1,2915 @@
+{
+ "title": "Claude Code (repo)",
+ "summary": "The public side of Claude Code: the officially bundled example plugins, the source of the hook-based mods built into the CLI binary, deployment templates for teams, and the GitHub automation that runs the repository itself, including answering @claude mentions with Claude Code. The CLI binary itself is closed-source and downloaded separately; this repo is the open surface around it.",
+ "root": {
+  "direction": "RIGHT",
+  "nodes": [
+   {
+    "id": "cli-binary",
+    "label": "Claude Code CLI",
+    "kind": "external",
+    "summary": "The terminal agent binary end users install and run; its source is not in this repo.",
+    "details": "- Downloaded via curl install script, npm, Homebrew, or winget (npm is deprecated).\n- Loads the four built-in mods on every session and any plugins the user has installed.\n- This repo only publishes install docs for it, plus the source that gets compiled into it (mods) and extensions for it (plugins).",
+    "files": [
+     "README.md"
+    ]
+   },
+   {
+    "id": "mods",
+    "label": "Built-in mods",
+    "kind": "module",
+    "summary": "Hook-module source for the four features shipped compiled into every Claude Code binary.",
+    "details": "- A mod is a plugin whose behavior is one register(on, options) hooking the engine's events.\n- Ships: sec-default (locks org policy away from user-installed plugins), diff (the /diff pane), telemetry ($.telemetry analytics noun), agents-md (AGENTS.md as project instructions).\n- Tested in isolation with `claude plugin test`, against a mocked engine, not a real session.\n- Early access API; not installable from a marketplace, only read from source here.",
+    "files": [
+     "mods/README.md"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "sec-default",
+       "label": "Security default",
+       "kind": "hook",
+       "summary": "Outermost gate keeping an org's managed hooks, settings and tool policy out of reach of user-installed plugins.",
+       "details": "- Seated outermost on a machine with managed settings, or by default for Team/Enterprise orgs, unless a managed `prependPlugins` setting overrides the order.\n- Continues past the user tier on the org's classic hooks, prompt content and settings; refuses a user-tier `tool.register` outside an MCP allowlist; restores the org's own tools in `tool.list`.\n- Holds a settings deny rule over a user-tier allow/ask on `tool.check`, and under its `allowManagedModsOnly` option refuses a user-tier hooks module at `plugin.register`.\n- Adds no policy of its own — it only shields the org's existing policy from what the plugins tier could otherwise override.",
+       "files": [
+        "mods/sec-default/hooks/register.ts",
+        "mods/sec-default/.claude-plugin/plugin.json",
+        "mods/sec-default/hooks/hooks.json"
+       ],
+       "children": {
+        "direction": "RIGHT",
+        "nodes": [
+         {
+          "id": "content-passthrough",
+          "label": "Content pass-through",
+          "kind": "process",
+          "summary": "Sends the organization's classic hooks, managed prompt content, and settings reads straight past the user tier.",
+          "details": "- Covers classic.*, prompt.section, prompt.context, prompt.compose, skill.prompt, attribution.text, and settings.read.\n- Every one of these just calls next.to(e, 'append'), skipping the user tier.\n- The engine only raises prompt.compose at all when some loaded plugin hooks it, so seating this plugin makes that chain run on every prompt.",
+          "files": [
+           "mods/sec-default/hooks/register.ts",
+           "mods/sec-default/hooks/hooks.json",
+           "mods/sec-default/.claude-plugin/plugin.json"
+          ]
+         },
+         {
+          "id": "subject-visibility-guard",
+          "label": "Subject visibility guard",
+          "kind": "process",
+          "summary": "Keeps an organization-provided tool, command, or agent subject out of a person's plugins' reach.",
+          "details": "- Covers tool.describe, command.describe, agent.offer, and agent.spawn.\n- Decided purely by the event's pinned provider.tier, never by a settings read.\n- A subject from prepend, append, or no provider continues past the user tier; one from user, builtin, or core passes through every tier.",
+          "files": [
+           "mods/sec-default/hooks/past-users/past-users.ts",
+           "mods/sec-default/hooks/past-users/user-reachable-tiers/user-reachable-tiers.ts",
+           "mods/sec-default/hooks/past-users/provided/provided.ts"
+          ]
+         },
+         {
+          "id": "mcp-tool-policy-guard",
+          "label": "MCP tool policy guard",
+          "kind": "process",
+          "summary": "Refuses a plugin's tool registration and restores the organization's own MCP tool listing under its allowlist.",
+          "details": "- tool.register: a user-tier caller is refused by name while managed settings hold allowedMcpServers (set at all, empty included); prepend/append callers always continue.\n- tool.list: merges the organization's managed-server tools, as the organization's own tiers listed them, with every other tool as the user tier left it.\n- Fails open to the organization's own listing when policy can't be read or either listing refused.",
+          "files": [
+           "mods/sec-default/hooks/register.ts",
+           "mods/sec-default/hooks/tool-register-refusal/tool-register-refusal.ts",
+           "mods/sec-default/hooks/policy/has-mcp-allowlist.ts",
+           "mods/sec-default/hooks/policy/managed-tools-restored/managed-tools-restored.ts",
+           "mods/sec-default/hooks/policy/managed-tools-restored/is-org-tool/is-org-tool.ts"
+          ]
+         },
+         {
+          "id": "deny-rule-holder",
+          "label": "Deny-rule holder",
+          "kind": "process",
+          "summary": "Re-checks a loosened tool.check answer past the user tier so a named deny rule still wins.",
+          "details": "- Runs the tool.check chain once, then checks next.trace for any managed-tier link that a person's plugin's answer loosened.\n- If so, and managed policy hasn't set allowModsToOverrideDenyRules, re-runs the dispatch with the user tier skipped.\n- A deny from that second run that names its own rule replaces the chain's answer; the person is told once per plugin per session.\n- A failed hook falls back to the last run it could read: a deny stands, an unloosened verdict stands, anything else is refused.",
+          "files": [
+           "mods/sec-default/hooks/register.ts",
+           "mods/sec-default/hooks/held-verdict/caught-answer.ts",
+           "mods/sec-default/hooks/held-verdict/held-notice.ts",
+           "mods/sec-default/hooks/policy/deny-rules-hold.ts",
+           "mods/sec-default/hooks/held-verdict/verdicts/ranking/is-looser.ts",
+           "mods/sec-default/hooks/held-verdict/verdicts/loosened-by-users.ts"
+          ]
+         },
+         {
+          "id": "plugin-admission-guard",
+          "label": "Plugin admission guard",
+          "kind": "process",
+          "summary": "Refuses to load a person's hooks module when managed policy limits mods to the organization's own.",
+          "details": "- Only asked about plugin.register in the user tier; prepend, append, and builtin modules are never asked.\n- Reads allowManagedModsOnly straight from $.settings.read({source:'policy'}), not through the shared memo.\n- On unless absent or false, refuses the module by name before any of its hooks, tools, or commands join.\n- Fails closed: an unreadable policy or a hook failure refuses the module too.",
+          "files": [
+           "mods/sec-default/hooks/register.ts",
+           "mods/sec-default/hooks/managed-mods-only-refusal/managed-mods-only-refusal.ts",
+           "mods/sec-default/hooks/policy/is-managed-mods-only.ts",
+           "mods/sec-default/hooks/admission-failure/admission-failure.ts"
+          ]
+         },
+         {
+          "id": "policy-memo",
+          "label": "Policy memo",
+          "kind": "module",
+          "summary": "Reads managed policy once and serves it to a burst of calls for half a second.",
+          "details": "- Wraps $.settings.read({source:'policy'}) so a burst of calls (many tool.list / tool.register / tool.check events) reads the setting once.\n- A policy change takes up to 500ms to be seen.\n- Used by the MCP tool-policy guard and the deny-rule holder; the plugin-admission guard reads policy directly instead.",
+          "files": [
+           "mods/sec-default/hooks/policy/policy-memo-ms.ts",
+           "mods/sec-default/hooks/policy/source.ts",
+           "mods/sec-default/hooks/policy/decided-by-policy.ts",
+           "mods/sec-default/hooks/policy/create-policy-memo/create-policy-memo.ts"
+          ]
+         },
+         {
+          "id": "managed-settings-store",
+          "label": "Managed settings",
+          "kind": "config",
+          "summary": "The organization's managed settings this plugin reads through the policy source but never writes.",
+          "details": "Outside this repo's scope: the engine's settings store, reached here only through $.settings.read({source:'policy'})."
+         },
+         {
+          "id": "organization-admin",
+          "label": "Organization admin",
+          "kind": "person",
+          "summary": "Sets the managed options that turn each guard's behavior on.",
+          "details": "- allowManagedModsOnly: limits mods to the ones deployed through managed settings plus Claude Code's built-ins.\n- allowModsToOverrideDenyRules: lets a person's plugins answer over a settings deny rule on tool.check.\n- Can also place this plugin in managed prependPlugins to choose where it sits."
+         },
+         {
+          "id": "installed-plugin",
+          "label": "Installed plugin",
+          "kind": "hook",
+          "summary": "A hooks module a person installed, running in the user tier beneath the organization's.",
+          "details": "Covers a plugin installed normally, one named with --plugin-dir, or one kept in a person's mods folder. Sits in the user tier, beneath the organization's prepend tier and above its append tier."
+         },
+         {
+          "id": "end-user",
+          "label": "Claude Code user",
+          "kind": "person",
+          "summary": "The person running Claude Code, whose settings and deny rules this plugin protects."
+         }
+        ],
+        "edges": [
+         {
+          "from": "content-passthrough",
+          "to": "../agents-md",
+          "label": "lets managed content compose the prompt untouched"
+         },
+         {
+          "from": "content-passthrough",
+          "to": "installed-plugin",
+          "label": "keeps managed content and settings reads out of its reach"
+         },
+         {
+          "from": "subject-visibility-guard",
+          "to": "installed-plugin",
+          "label": "hides org-provided tool/command/agent subjects from"
+         },
+         {
+          "from": "installed-plugin",
+          "to": "mcp-tool-policy-guard",
+          "label": "tries to register a tool or list MCP tools"
+         },
+         {
+          "from": "mcp-tool-policy-guard",
+          "to": "policy-memo",
+          "label": "checks allowedMcpServers and the managed tool list via",
+          "kind": "data"
+         },
+         {
+          "from": "mcp-tool-policy-guard",
+          "to": "installed-plugin",
+          "label": "restores the organization's own tool listing over its view"
+         },
+         {
+          "from": "policy-memo",
+          "to": "managed-settings-store",
+          "label": "reads the policy source, cached 500ms",
+          "kind": "data"
+         },
+         {
+          "from": "deny-rule-holder",
+          "to": "policy-memo",
+          "label": "checks allowModsToOverrideDenyRules via",
+          "kind": "data"
+         },
+         {
+          "from": "deny-rule-holder",
+          "to": "installed-plugin",
+          "label": "catches a loosened allow/ask answer from",
+          "kind": "data"
+         },
+         {
+          "from": "deny-rule-holder",
+          "to": "end-user",
+          "label": "shows the held-deny-rule notice once per plugin",
+          "kind": "async"
+         },
+         {
+          "from": "deny-rule-holder",
+          "to": "../engine-contract",
+          "label": "typed against the hook/event/trace contract"
+         },
+         {
+          "from": "installed-plugin",
+          "to": "plugin-admission-guard",
+          "label": "tries to load as a hooks module at session start"
+         },
+         {
+          "from": "plugin-admission-guard",
+          "to": "managed-settings-store",
+          "label": "reads allowManagedModsOnly directly, bypassing the memo",
+          "kind": "data"
+         },
+         {
+          "from": "plugin-admission-guard",
+          "to": "end-user",
+          "label": "names the refused plugin in the debug log, and on-screen on hot-reload",
+          "kind": "async"
+         },
+         {
+          "from": "organization-admin",
+          "to": "managed-settings-store",
+          "label": "sets allowManagedModsOnly, allowModsToOverrideDenyRules, allowedMcpServers",
+          "kind": "data"
+         }
+        ],
+        "flows": [
+         {
+          "id": "deny-rule-held",
+          "name": "What happens when a person's plugin tries to lift a deny rule",
+          "summary": "A plugin's looser tool.check answer is checked again past the user tier, and a deny rule that applies still wins.",
+          "steps": [
+           {
+            "from": "installed-plugin",
+            "to": "deny-rule-holder",
+            "text": "the plugin's hook answers allow or ask on a tool.check event"
+           },
+           {
+            "node": "deny-rule-holder",
+            "text": "notices the answer is looser than what the chain handed it, and re-runs the check with the user tier skipped"
+           },
+           {
+            "from": "deny-rule-holder",
+            "to": "policy-memo",
+            "text": "confirms managed policy hasn't opted out of holding deny rules"
+           },
+           {
+            "from": "deny-rule-holder",
+            "to": "end-user",
+            "text": "if that re-run still denies by a named rule, returns the deny and logs the plugin's name once per session"
+           }
+          ]
+         },
+         {
+          "id": "managed-mods-only",
+          "name": "What happens when an organization limits mods to its own",
+          "summary": "A hooks module a person installed is refused at load, before any of its code can run.",
+          "steps": [
+           {
+            "from": "installed-plugin",
+            "to": "plugin-admission-guard",
+            "text": "the module registers itself as the session starts"
+           },
+           {
+            "from": "plugin-admission-guard",
+            "to": "managed-settings-store",
+            "text": "reads allowManagedModsOnly straight from managed settings"
+           },
+           {
+            "node": "plugin-admission-guard",
+            "text": "refuses the module by name when the option is on, so none of its hooks or tools join"
+           },
+           {
+            "from": "plugin-admission-guard",
+            "to": "end-user",
+            "text": "names the refused plugin in the debug log, and on screen if the session hot-reloads its folder"
+           }
+          ]
+         },
+         {
+          "id": "org-only-reach",
+          "name": "What a person's plugins never see",
+          "summary": "Managed content, settings, and organization-provided subjects skip the user tier entirely.",
+          "steps": [
+           {
+            "node": "content-passthrough",
+            "text": "the organization's classic hooks, managed prompt content, and every settings.read answer continue straight to the append tier"
+           },
+           {
+            "from": "content-passthrough",
+            "to": "installed-plugin",
+            "text": "so a person's plugin never sees or rewrites any of it"
+           },
+           {
+            "node": "subject-visibility-guard",
+            "text": "a tool, command, or agent subject an organization's own plugin or MCP server provided takes the same shortcut"
+           },
+           {
+            "from": "subject-visibility-guard",
+            "to": "installed-plugin",
+            "text": "while a subject from the user, a built-in, or the engine's core still passes through every tier, plugins included"
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "id": "diff",
+       "label": "Diff pane",
+       "kind": "hook",
+       "summary": "The `/diff` command: shows the session's uncommitted changes beside the transcript, refreshed live.",
+       "details": "- Opens on the first edit if the terminal is wide enough, or via the `/diff` command; draws file-by-file hunks that refresh as Claude edits files, runs shell commands, or finishes a turn.\n- A file's ask button rides its hunks into the next prompt, so Claude sees exactly what changed.\n- By far the largest mod (821 files, 227 of them tests) — its own git-probing layer, diff parsing, and the pane's view layer are each substantial internals.",
+       "files": [
+        "mods/diff/hooks/register.ts",
+        "mods/diff/.claude-plugin/plugin.json",
+        "mods/diff/hooks/hooks.json"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "register",
+          "label": "Hook registration",
+          "kind": "hook",
+          "summary": "Binds the engine's `$` into a plain Host at session.start and wires every event the pane reacts to.",
+          "details": "- Holds the pane's whole mutable state (open/closed, the pinned backend, timers, the armed ask) as closures, not a class.\n- Registers handlers for session.start, ui.render (both PromptHint and Pane components), command.run (`/diff`, `/clear`, `/resume`), tool.call, prompt.submit, ui.close and ui.scroll.\n- Fails soft: if `/diff` is already held by a built-in or an org policy, logs a message instead of throwing.",
+          "files": [
+           "mods/diff/hooks/register.ts",
+           "mods/diff/hooks/host/host.ts",
+           "mods/diff/hooks/is-checkpointing.ts"
+          ]
+         },
+         {
+          "id": "backend",
+          "label": "VCS backend",
+          "kind": "module",
+          "summary": "Locates the git repository behind the session's directory and pins every later git call to it.",
+          "details": "- `backendOf` asks any other installed version-control probes first, then falls back to git — none are installed as published.\n- The git backend resolves the repository root with one `rev-parse`, then runs every later command with `--git-dir`/`--work-tree` pinned to it, under a fetch timeout and the C locale.\n- Reads the dirty-paths baseline once per pin, used to tell checkpoint-session edits apart from pre-existing changes.",
+          "files": [
+           "mods/diff/hooks/backend/backend-of.ts",
+           "mods/diff/hooks/git/git-backend-of.ts",
+           "mods/diff/hooks/git/"
+          ]
+         },
+         {
+          "id": "git-cli",
+          "label": "git binary",
+          "kind": "external",
+          "summary": "The git command line, run as a child process to read diffs, hunks, branch base and head state."
+         },
+         {
+          "id": "pane-state",
+          "label": "Pane state model",
+          "kind": "data",
+          "summary": "The pane's view-model: which files changed, which is selected, loaded hunk bodies, totals, and the fullscreen/dock layout.",
+          "details": "Pure transition functions (afterFetch, afterNewSession, headerTotalsOf, modeLabelOf, …) that register.ts calls to turn a git fetch or a UI event into the next model, never touching git or the engine itself.",
+          "files": [
+           "mods/diff/hooks/pane-state/index.ts",
+           "mods/diff/hooks/pane-state/"
+          ]
+         },
+         {
+          "id": "views",
+          "label": "Pane rendering",
+          "kind": "ui",
+          "summary": "Draws the docked sidebar list, the fullscreen dialog, or a narrow-terminal fallback line from the current pane state.",
+          "details": "- `paneView` picks docked vs. dialog vs. the too-narrow note; `sections` and `detail` draw the file rows, hunks and legend beneath it.\n- `pane-actions` closes over register's mutable state to answer clicks (select file, scroll, toggle noise/pre-session, cycle base, choose source, toggle ask).",
+          "files": [
+           "mods/diff/hooks/views/pane-view.tsx",
+           "mods/diff/hooks/views/index.ts",
+           "mods/diff/hooks/views/sidebar-pane/sidebar-pane.tsx",
+           "mods/diff/hooks/views/dialog-pane/dialog-pane.tsx",
+           "mods/diff/hooks/views/pane-actions/pane-actions.ts"
+          ]
+         },
+         {
+          "id": "ask",
+          "label": "Ask bridge",
+          "kind": "module",
+          "summary": "Lets the person arm one file's diff so it rides their very next prompt as context, then drops it.",
+          "details": "Trims the diff text to fit the remaining prompt-context budget (`fittedAskTextOf`); if it doesn't fit, tells the person and disarms instead of silently truncating mid-hunk.",
+          "files": [
+           "mods/diff/hooks/ask/index.ts",
+           "mods/diff/hooks/ask/armed-ask/armed-ask.ts",
+           "mods/diff/hooks/ask/armed-ask-of.ts",
+           "mods/diff/hooks/ask/fitted-ask-text-of.ts"
+          ]
+         },
+         {
+          "id": "record",
+          "label": "Usage telemetry",
+          "kind": "module",
+          "summary": "Logs feature marks (read ok/failed, base switch, file asked) and the one-per-session panel-shown row.",
+          "details": "Every call swallows a missing `$.telemetry` noun or a refused row, so a telemetry outage never breaks the pane.",
+          "files": [
+           "mods/diff/hooks/record/recorder-of.ts",
+           "mods/diff/hooks/record/recorder/recorder.ts"
+          ]
+         },
+         {
+          "id": "edit-tracking",
+          "label": "Edit & turn tracking",
+          "kind": "module",
+          "summary": "Classifies tool calls as landed edits or writes, and groups a turn's edits for the per-turn diff view.",
+          "details": "`mayHaveWritten` treats a shell call as a write unless the engine marked it read-only (e.g. `git status`); a landed main-loop edit is what triggers the pane's first-edit auto-open.",
+          "files": [
+           "mods/diff/hooks/tools/may-have-written.ts",
+           "mods/diff/hooks/turns/turn-diffs-of.ts",
+           "mods/diff/hooks/classify/is-noise-file.ts"
+          ]
+         },
+         {
+          "id": "command-names",
+          "label": "Command & text constants",
+          "kind": "config",
+          "summary": "The static `/diff` CommandSpec, the pane's id/title, and the user-facing status strings the other parts reuse."
+         },
+         {
+          "id": "developer",
+          "label": "Developer",
+          "kind": "person",
+          "summary": "The person running Claude Code who presses `/diff`, edits files, and reads or dismisses the diff pane."
+         }
+        ],
+        "edges": [
+         {
+          "from": "developer",
+          "to": "register",
+          "label": "runs /diff, edits files",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "backend",
+          "label": "pins the repo on first use",
+          "kind": ""
+         },
+         {
+          "from": "backend",
+          "to": "git-cli",
+          "label": "runs pinned git commands",
+          "kind": "data"
+         },
+         {
+          "from": "register",
+          "to": "pane-state",
+          "label": "folds fetch/UI events into model",
+          "kind": "data"
+         },
+         {
+          "from": "views",
+          "to": "pane-state",
+          "label": "reads model to draw",
+          "kind": "data"
+         },
+         {
+          "from": "register",
+          "to": "views",
+          "label": "renders pane every frame",
+          "kind": ""
+         },
+         {
+          "from": "views",
+          "to": "developer",
+          "label": "shows the diff pane",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "ask",
+          "label": "arms/disarms a file's diff",
+          "kind": ""
+         },
+         {
+          "from": "ask",
+          "to": "developer",
+          "label": "carries diff into next prompt",
+          "kind": "data"
+         },
+         {
+          "from": "register",
+          "to": "record",
+          "label": "marks shown/read outcomes",
+          "kind": "data"
+         },
+         {
+          "from": "record",
+          "to": "../telemetry",
+          "label": "sends rows via $.telemetry noun",
+          "kind": "data"
+         },
+         {
+          "from": "register",
+          "to": "edit-tracking",
+          "label": "classifies each tool call",
+          "kind": ""
+         },
+         {
+          "from": "edit-tracking",
+          "to": "backend",
+          "label": "a landed edit triggers refresh",
+          "kind": "async"
+         },
+         {
+          "from": "register",
+          "to": "command-names",
+          "label": "registers /diff using this spec",
+          "kind": ""
+         },
+         {
+          "from": "command-names",
+          "to": "../engine-contract",
+          "label": "types CommandSpec against the engine",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "../sec-default",
+          "label": "registration can be blocked by policy",
+          "kind": ""
+         }
+        ],
+        "flows": [
+         {
+          "id": "auto-open-on-first-edit",
+          "name": "What happens when the person's first edit lands in a fullscreen session",
+          "summary": "An edit tool call auto-opens the pane without the person asking for /diff.",
+          "steps": [
+           {
+            "from": "developer",
+            "to": "register",
+            "text": "An editing tool call (Edit, Write, …) resolves without being denied."
+           },
+           {
+            "node": "edit-tracking",
+            "text": "Classifies the result as a landed main-loop edit, not a read-only shell command."
+           },
+           {
+            "from": "register",
+            "to": "backend",
+            "text": "Pins the git backend if this is the first edit of the session."
+           },
+           {
+            "from": "register",
+            "to": "pane-state",
+            "text": "Fetches the diff and hunk bodies, folding them into the pane model."
+           },
+           {
+            "from": "register",
+            "to": "views",
+            "text": "Opens and draws the pane now that there is room and a checkpointed edit."
+           },
+           {
+            "from": "views",
+            "to": "developer",
+            "text": "The diff pane appears beside the transcript, already showing the change."
+           }
+          ]
+         },
+         {
+          "id": "ask-rides-next-prompt",
+          "name": "What happens when the person asks about a file from the pane",
+          "summary": "Arming a file's diff attaches it to the very next prompt, then it is dropped.",
+          "steps": [
+           {
+            "from": "developer",
+            "to": "views",
+            "text": "Clicks the ask toggle on a file row in the pane."
+           },
+           {
+            "from": "register",
+            "to": "ask",
+            "text": "toggleAsk arms that file's path and diff text, and shows a status hint."
+           },
+           {
+            "from": "developer",
+            "to": "register",
+            "text": "Submits the next prompt."
+           },
+           {
+            "from": "ask",
+            "to": "developer",
+            "text": "The fitted diff text is appended to that prompt's context, then the file disarms."
+           },
+           {
+            "from": "register",
+            "to": "record",
+            "text": "Marks the diff_selection_attach feature once the prompt carried it."
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "id": "telemetry",
+       "label": "Telemetry noun",
+       "kind": "hook",
+       "summary": "Adds the `$.telemetry` noun other built-in mods call to log usage as first-party analytics rows.",
+       "details": "- Hooks `telemetry.log` and `telemetry.mark`; since no other mod seats this noun, its `engine.create` hook adds `$.telemetry` itself.\n- Gates `telemetry.*` so a session with no provider throws naming the noun, and refuses calls from user-installed plugins — only built-in mods may log.\n- Queues rows over `$.session`, `$.env`, `$.settings`, `$.fs`, `$.process`, `$.clock` and `$.http`, and sends them out in batches.\n- Sends nothing wherever the CLI's own analytics are off.",
+       "files": [
+        "mods/telemetry/hooks/register.ts",
+        "mods/telemetry/types/index.d.ts",
+        "mods/telemetry/hooks/telemetry-of/telemetry-of.ts"
+       ],
+       "children": {
+        "direction": "RIGHT",
+        "nodes": [
+         {
+          "id": "builtin-callers",
+          "label": "Built-in callers",
+          "kind": "module",
+          "summary": "The other CLI-bundled mods that call $.telemetry.log and .mark to record events and feature outcomes.",
+          "details": "- Only plugins seated in the builtin or core tier may call the noun; a person-installed or admin-listed plugin is refused by the gate.\n- An entry whose `to` is 'collector' bypasses this mod entirely and rides whatever telemetry collector an operator configured, untouched."
+         },
+         {
+          "id": "gate",
+          "label": "Access gate",
+          "kind": "hook",
+          "summary": "Guards every telemetry.* call: lets builtin/core callers through, refuses anyone else, and catches a gate that throws.",
+          "details": "- SERVED_TIERS is just ['builtin', 'core'] — hardcoded, not configurable per build.\n- The host stamps every call with the plugin that raised it (`next.origin`), and the gate reads its tier; no origin at all is a bug, so it throws rather than refusing silently.\n- The `.catch` half replays beneath's own answer if it was actually invoked before throwing, so a real refusal (a malformed entry) still surfaces instead of being masked by REFUSED.",
+          "files": [
+           "mods/telemetry/hooks/gate/served/served.ts",
+           "mods/telemetry/hooks/gate/caught/caught.ts",
+           "mods/telemetry/hooks/gate/served-tiers/served-tiers.ts",
+           "mods/telemetry/hooks/gate/refused/refused.ts"
+          ]
+         },
+         {
+          "id": "register",
+          "label": "Hook registration",
+          "kind": "entry",
+          "summary": "The plugin's one entry point: wires the gate, the log/mark handlers, session.start/end, and the engine.create step that builds the sender.",
+          "details": "- engine.create adds `$.telemetry` only on an engine that has none of its own; where one already exists, this mod's own noun still stands (spread first), not replaced.\n- session.start just remembers whether a person is at the prompt, read later by every batch as `is_interactive`.\n- session.end awaits the sender's flush so queued rows aren't lost at process exit.",
+          "files": [
+           "mods/telemetry/hooks/register.ts"
+          ]
+         },
+         {
+          "id": "entry-checks",
+          "label": "Entry validation",
+          "kind": "module",
+          "summary": "Checks a log or mark entry's shape before it is ever queued: snake_case tokens, Choice-typed props, and mark's kind/reason rules.",
+          "details": "- A property value is a finite number, a boolean, or a Choice (a value plus the closed list it's drawn from); free text is refused outright.\n- mark requires a reason on 'sad' and 'bad' and refuses one on 'ok'.\n- Nothing free-form reaches a row — this is the only gate between the caller's argument and the wire; a refusal here rejects the caller's promise naming what was wrong.",
+          "files": [
+           "mods/telemetry/hooks/entries/checked-fields.ts",
+           "mods/telemetry/hooks/entries/checked-mark.ts",
+           "mods/telemetry/hooks/entries/checked-props/checked-props.ts",
+           "mods/telemetry/hooks/entries/token/token.ts",
+           "mods/telemetry/hooks/entries/choice-token/choice-token.ts",
+           "mods/telemetry/hooks/entries/refusal/refusal.ts"
+          ]
+         },
+         {
+          "id": "sender",
+          "label": "Batch sender",
+          "kind": "process",
+          "summary": "Queues checked rows and sends them in batches: on a timer, when 100 wait, or when the session ends.",
+          "details": "- Each batch re-reads the off-switches fresh, so a session that moves to a third-party provider or gateway mid-run sends nothing more.\n- No first-party credential, or an ingest that still refuses after one retry, drops the batch; either outcome is one line in the debug log, never an error back to the caller.\n- Session context is gathered once, lazily on the first queued row, and reused for every batch after."
+         },
+         {
+          "id": "analytics-off",
+          "label": "Analytics off-switch",
+          "kind": "config",
+          "summary": "Reads environment variables and the managed policy to decide, fresh on every batch, whether anything may be sent at all.",
+          "details": "- Off under test, DISABLE_TELEMETRY, the nonessential-traffic switch, or DO_NOT_TRACK.\n- Off on a third-party provider (Bedrock, Vertex, Foundry, and kin) the host doesn't itself manage.\n- Off on a login gateway (the env switch or either of the two managed-settings policy pins) and on any deployment with its own custom OAuth URL.\n- When the switches themselves can't be read, nothing is sent either.",
+          "files": [
+           "mods/telemetry/hooks/is-analytics-off/is-analytics-off.ts",
+           "mods/telemetry/hooks/policy-pins/policy-pins.ts",
+           "mods/telemetry/hooks/environment/environment.ts"
+          ]
+         },
+         {
+          "id": "context",
+          "label": "Session context",
+          "kind": "module",
+          "summary": "Gathers, once per session, everything every row carries in common: identity, session fields, the env block, and the repo's remote hash.",
+          "details": "- Identity comes from the CLI's own global config: the install's device id and the signed-in account's ids.\n- The env block is built from one `uname`-style probe plus reads of terminal, shell, package manager, CI/GitHub Actions, VCS, Linux distro and WSL signals — all closed-list values, never a raw secret-shaped variable.\n- Columns only the engine itself knows (its runtime version, memory, request betas, subscription tier) are never populated here and stay empty.",
+          "files": [
+           "mods/telemetry/hooks/context/context-of.ts",
+           "mods/telemetry/hooks/context/probe-of/probe-of.ts",
+           "mods/telemetry/hooks/context/identity/identity-of.ts",
+           "mods/telemetry/hooks/context/machine/machine-of.ts",
+           "mods/telemetry/hooks/facts/facts.ts",
+           "mods/telemetry/hooks/deployment/deployment-of.ts"
+          ]
+         },
+         {
+          "id": "anthropic-ingest",
+          "label": "Anthropic event ingest",
+          "kind": "external",
+          "summary": "The first-party event-logging endpoint — the same address the CLI's own analytics exporter posts its batches to.",
+          "details": "- Fixed URL (api.anthropic.com/api/event_logging/v2/batch), not read from session config, so a session on a different API base simply never reaches it.\n- Authorized with the session's own resolved credential; a session with none never attempts to send.",
+          "files": [
+           "mods/telemetry/hooks/entries/ingest-url.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "builtin-callers",
+          "to": "gate",
+          "label": "call telemetry.log/mark",
+          "kind": ""
+         },
+         {
+          "from": "../engine-contract",
+          "to": "register",
+          "label": "fires session.start/end",
+          "kind": "async"
+         },
+         {
+          "from": "register",
+          "to": "gate",
+          "label": "installs the tier check",
+          "kind": ""
+         },
+         {
+          "from": "gate",
+          "to": "sender",
+          "label": "forwards served calls",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "sender",
+          "label": "builds sender in engine.create",
+          "kind": "data"
+         },
+         {
+          "from": "sender",
+          "to": "entry-checks",
+          "label": "validates each entry",
+          "kind": "data"
+         },
+         {
+          "from": "sender",
+          "to": "context",
+          "label": "gathers context once",
+          "kind": "data"
+         },
+         {
+          "from": "sender",
+          "to": "analytics-off",
+          "label": "re-checks before every batch",
+          "kind": "data"
+         },
+         {
+          "from": "sender",
+          "to": "anthropic-ingest",
+          "label": "POSTs batches, one retry",
+          "kind": "async"
+         },
+         {
+          "from": "register",
+          "to": "../engine-contract",
+          "label": "declares the telemetry noun",
+          "kind": "data"
+         }
+        ],
+        "flows": [
+         {
+          "id": "log-or-mark-call",
+          "name": "What happens when a built-in mod logs an event or marks a feature",
+          "summary": "A built-in-tier caller queues one row, which is validated, batched, and sent to Anthropic's ingest.",
+          "steps": [
+           {
+            "from": "builtin-callers",
+            "to": "gate",
+            "text": "A bundled mod calls $.telemetry.log({event, props}) or .mark({feature, kind})."
+           },
+           {
+            "from": "gate",
+            "to": "sender",
+            "text": "Gate confirms the caller's origin tier is builtin or core and lets the call through."
+           },
+           {
+            "from": "sender",
+            "to": "entry-checks",
+            "text": "Event/feature name, kind, and every prop are checked as snake_case tokens or Choices; a bad entry rejects the caller's promise instead of being queued."
+           },
+           {
+            "node": "sender",
+            "text": "Checked row is queued; the batch flushes at 100 rows, after a short timer, or at session end."
+           },
+           {
+            "from": "sender",
+            "to": "analytics-off",
+            "text": "Just before sending, the off-switches and managed policy are re-read; any one tripped drops the batch."
+           },
+           {
+            "from": "sender",
+            "to": "context",
+            "text": "Session context (identity, env block, remote hash) is gathered once and reused for every batch after."
+           },
+           {
+            "from": "sender",
+            "to": "anthropic-ingest",
+            "text": "Batch POSTs with the session's own credential; one retry on a timeout, rate limit, or server error, else the batch is dropped."
+           }
+          ]
+         },
+         {
+          "id": "session-end-flush",
+          "name": "What happens when the session ends",
+          "summary": "Whatever rows are still queued go out in one last batch before the process exits.",
+          "steps": [
+           {
+            "from": "../engine-contract",
+            "to": "register",
+            "text": "The host fires the session.end hook event."
+           },
+           {
+            "from": "register",
+            "to": "sender",
+            "text": "register's session.end handler awaits the sender's flush."
+           },
+           {
+            "from": "sender",
+            "to": "analytics-off",
+            "text": "Flush re-checks the off-switches before sending anything."
+           },
+           {
+            "from": "sender",
+            "to": "anthropic-ingest",
+            "text": "Remaining queued rows go out in one final POST."
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "id": "agents-md",
+       "label": "AGENTS.md instructions",
+       "kind": "hook",
+       "summary": "Loads AGENTS.md files as project instructions, framed exactly like CLAUDE.md, by a configurable option.",
+       "details": "- Default mode (`claude-md-or-agents-md`): a project with no CLAUDE.md of its own gets its AGENTS.md files instead, walked from the filesystem root down via `$.fs.ancestors`.\n- `claude-md-and-agents-md` loads every AGENTS.md beside CLAUDE.md (skipping a file CLAUDE.md already imports or links to); `managed-only` drops the project's and person's own files, keeping only the org's managed ones; `claude-md` disables it entirely.\n- A `prompt.context` hook hands the engine the ancestor files as instruction files; a `tool.call` hook on `Read` attaches nested AGENTS.md the same way the engine attaches a nested CLAUDE.md.\n- Every mode logs a usage row through `$.telemetry` where that noun is seated.",
+       "files": [
+        "mods/agents-md/hooks/register.ts",
+        "mods/agents-md/hooks/modes/modes.ts",
+        "mods/agents-md/.claude-plugin/plugin.json"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "register",
+          "label": "Hook registration",
+          "kind": "module",
+          "summary": "Reads the resolved mode and wires the plugin's four event handlers, holding the per-loop state they share.",
+          "details": "- Returns immediately under `claude-md` (nothing but the usage row) and registers only a filtering `prompt.context` handler under `managed-only`.\n- Otherwise keeps a `given` map of which AGENTS.md paths have already reached each agent loop, the last project root seen, and whether the project has its own CLAUDE.md.",
+          "files": [
+           "mods/agents-md/hooks/register.ts",
+           "mods/agents-md/hooks/index.ts"
+          ]
+         },
+         {
+          "id": "mode-resolve",
+          "label": "Mode resolution",
+          "kind": "module",
+          "summary": "Settles on one of the four instructionFiles modes, honouring a still-stored legacy option key for now.",
+          "details": "- Reads `instructionFiles` (claude-md / claude-md-or-agents-md / claude-md-and-agents-md / managed-only), defaulting to claude-md-or-agents-md.\n- Falls back to a stored `projectInstructions` value only when instructionFiles was never set, mapping its old four values across; tells the user once in the transcript either way.",
+          "files": [
+           "mods/agents-md/hooks/modes/mode-of.ts",
+           "mods/agents-md/hooks/modes/legacy-mode-of.ts",
+           "mods/agents-md/hooks/modes/default-mode.ts",
+           "mods/agents-md/hooks/modes/modes.ts",
+           "mods/agents-md/hooks/modes/types/mode/mode.ts"
+          ]
+         },
+         {
+          "id": "session-start",
+          "label": "Session start report",
+          "kind": "hook",
+          "summary": "On every session.start, logs the active mode and tells the user once if the old option key is still in play.",
+          "files": [
+           "mods/agents-md/hooks/register.ts"
+          ]
+         },
+         {
+          "id": "prompt-context",
+          "label": "Context injection",
+          "kind": "hook",
+          "summary": "On prompt.context, walks the filesystem for AGENTS.md files (or drops files under managed-only) and hands the engine the set to render as project instructions.",
+          "details": "- Under the fallback mode, first checks whether the project already has a CLAUDE.md on the walk; if so, adds nothing and leaves it to the engine.\n- Skips any file the engine already holds by path or content, places each file's own `@` imports right after it, and logs a one-time debug line naming what loaded.\n- Under managed-only, instead filters the handed instruction files down to managed and memory kinds only.",
+          "files": [
+           "mods/agents-md/hooks/register.ts",
+           "mods/agents-md/hooks/files/with-project-files.ts",
+           "mods/agents-md/hooks/files/is-kept-without-instructions.ts"
+          ]
+         },
+         {
+          "id": "read-attach",
+          "label": "Nested file attach",
+          "kind": "hook",
+          "summary": "On a Read tool call, attaches the AGENTS.md of each directory between the project root and the file being read, once per loop and conversation.",
+          "details": "- Only runs where the engine would attach a nested CLAUDE.md too: skipped under --bare / CLAUDE_CODE_DISABLE_ATTACHMENTS.\n- Re-checks the project root on every call (follows /cd and worktree moves) and resets its sent-file tracking when the root changes.\n- A subdirectory's AGENTS.md is dropped if a CLAUDE.md of that same directory claims it instead.",
+          "files": [
+           "mods/agents-md/hooks/register.ts",
+           "mods/agents-md/hooks/files/unseen-files.ts",
+           "mods/agents-md/hooks/files/is-claude-file-on-walk.ts"
+          ]
+         },
+         {
+          "id": "fork-inherit",
+          "label": "Fork inheritance",
+          "kind": "hook",
+          "summary": "On agent.spawn with fork:true, copies the parent loop's already-sent file set to the new forked agent so it isn't attached twice.",
+          "details": "A plain /fork or /subtask (not an Agent-tool fork) raises no agent.spawn event and simply starts from an empty sent-file set.",
+          "files": [
+           "mods/agents-md/hooks/register.ts",
+           "mods/agents-md/hooks/names/main-loop.ts"
+          ]
+         },
+         {
+          "id": "path-matching",
+          "label": "Path & frame rules",
+          "kind": "module",
+          "summary": "Decides which files are below the project root, resolves ~ paths, and tells an AGENTS.md apart from the CLAUDE.md names it must defer to.",
+          "details": "- Compares paths by normalized spelling (handles Windows separators) rather than resolving symlinked aliases.\n- Supplies the AGENTS.md / .claude/AGENTS.md and CLAUDE.md name lists the filesystem walk searches for.",
+          "files": [
+           "mods/agents-md/hooks/frames/is-below.ts",
+           "mods/agents-md/hooks/frames/absolute-of.ts",
+           "mods/agents-md/hooks/frames/normal-spelling-of.ts",
+           "mods/agents-md/hooks/frames/outside-claude-dirs.ts",
+           "mods/agents-md/hooks/files/is-project-own.ts",
+           "mods/agents-md/hooks/names/agents-names.ts",
+           "mods/agents-md/hooks/names/claude-names.ts"
+          ]
+         },
+         {
+          "id": "telemetry-rows",
+          "label": "Usage rows",
+          "kind": "module",
+          "summary": "Builds the mode, load, and nested-attach count rows (and the ok/sad mark) this plugin reports, with no paths or file text.",
+          "files": [
+           "mods/agents-md/hooks/telemetry/load-row-of.ts",
+           "mods/agents-md/hooks/telemetry/mode-row-of.ts",
+           "mods/agents-md/hooks/telemetry/nested-row-of.ts",
+           "mods/agents-md/hooks/telemetry/load-mark-of.ts",
+           "mods/agents-md/hooks/telemetry/quietly.ts"
+          ]
+         },
+         {
+          "id": "engine-fs",
+          "label": "Engine filesystem API",
+          "kind": "external",
+          "summary": "The engine's $.fs.ancestors, $.session.root/cwd, and $.env.get calls this plugin relies on to find instruction files and know where it is running.",
+          "details": "Finds nothing on a thin client whose workspace files are remote, same as the engine's own walk."
+         }
+        ],
+        "edges": [
+         {
+          "from": "register",
+          "to": "mode-resolve",
+          "label": "resolves the active mode",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "session-start",
+          "label": "registers session.start handler",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "prompt-context",
+          "label": "registers prompt.context handler",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "read-attach",
+          "label": "registers Read hook",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "fork-inherit",
+          "label": "registers fork hook",
+          "kind": ""
+         },
+         {
+          "from": "register",
+          "to": "../engine-contract",
+          "label": "types against the engine's hook declarations",
+          "kind": "data"
+         },
+         {
+          "from": "prompt-context",
+          "to": "engine-fs",
+          "label": "walks ancestors for AGENTS.md/CLAUDE.md",
+          "kind": "data"
+         },
+         {
+          "from": "prompt-context",
+          "to": "path-matching",
+          "label": "checks for an existing CLAUDE.md",
+          "kind": ""
+         },
+         {
+          "from": "prompt-context",
+          "to": "telemetry-rows",
+          "label": "builds the load row and mark",
+          "kind": ""
+         },
+         {
+          "from": "read-attach",
+          "to": "engine-fs",
+          "label": "walks directories between root and file",
+          "kind": "data"
+         },
+         {
+          "from": "read-attach",
+          "to": "path-matching",
+          "label": "filters to files below the root",
+          "kind": ""
+         },
+         {
+          "from": "read-attach",
+          "to": "telemetry-rows",
+          "label": "builds the nested-attach row",
+          "kind": ""
+         },
+         {
+          "from": "session-start",
+          "to": "telemetry-rows",
+          "label": "builds the mode row",
+          "kind": ""
+         },
+         {
+          "from": "fork-inherit",
+          "to": "read-attach",
+          "label": "shares the parent's sent-file set",
+          "kind": ""
+         },
+         {
+          "from": "telemetry-rows",
+          "to": "../telemetry",
+          "label": "sends rows via $.telemetry noun",
+          "kind": "data"
+         }
+        ],
+        "flows": [
+         {
+          "id": "fresh-load-no-claude-md",
+          "name": "What happens when a session starts in a project with no CLAUDE.md",
+          "summary": "The default mode walks for AGENTS.md instead and reports what it found.",
+          "steps": [
+           {
+            "node": "mode-resolve",
+            "text": "The instructionFiles option resolves to claude-md-or-agents-md, the default."
+           },
+           {
+            "from": "session-start",
+            "to": "telemetry-rows",
+            "text": "At session.start, logs which mode is configured."
+           },
+           {
+            "from": "prompt-context",
+            "to": "path-matching",
+            "text": "Confirms the project owns no CLAUDE.md on the walk."
+           },
+           {
+            "from": "prompt-context",
+            "to": "engine-fs",
+            "text": "Walks the filesystem root down to the working directory for AGENTS.md files."
+           },
+           {
+            "from": "prompt-context",
+            "to": "telemetry-rows",
+            "text": "Logs the load row (file and import counts) once for this fresh load."
+           }
+          ]
+         },
+         {
+          "id": "read-attaches-nested-file",
+          "name": "What happens when Claude reads a file in a subdirectory",
+          "summary": "The Read hook attaches that directory's AGENTS.md the way the engine attaches a nested CLAUDE.md.",
+          "steps": [
+           {
+            "node": "read-attach",
+            "text": "A Read tool call lands on a file under the project root."
+           },
+           {
+            "from": "read-attach",
+            "to": "engine-fs",
+            "text": "Walks the directories strictly between the root and the file for AGENTS.md and CLAUDE.md."
+           },
+           {
+            "from": "read-attach",
+            "to": "path-matching",
+            "text": "Drops any AGENTS.md whose directory a CLAUDE.md there already claims."
+           },
+           {
+            "from": "read-attach",
+            "to": "telemetry-rows",
+            "text": "Logs the nested-attach row if any files were newly attached to this loop."
+           }
+          ]
+         },
+         {
+          "id": "agent-tool-fork",
+          "name": "What happens when the Agent tool forks mid-conversation",
+          "summary": "The fork inherits its parent's already-sent files instead of getting them attached again.",
+          "steps": [
+           {
+            "node": "fork-inherit",
+            "text": "agent.spawn fires with fork:true for a new Agent-tool subagent."
+           },
+           {
+            "from": "fork-inherit",
+            "to": "read-attach",
+            "text": "Copies the parent loop's sent-AGENTS.md-path set onto the fork's own loop id."
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "id": "engine-contract",
+       "label": "Engine type contract",
+       "kind": "data",
+       "summary": "Shared TypeScript declarations for every hook event and `$` noun the engine exposes to mods.",
+       "details": "- One generated file (`types/claude-code.d.ts`), written by Claude Code's own `/plugin-types` command, that every mod's `tsconfig.json` includes alongside the other mods' `types/*.d.ts`.\n- Because a call like `$.telemetry.log(...)` types against telemetry's real contract, an implementation cannot drift from what callers read.\n- A mod that adds a noun (only telemetry does) declares it here via its own `types/index.d.ts`, never duplicated elsewhere.",
+       "files": [
+        "mods/types/claude-code.d.ts",
+        "mods/tsconfig.json"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "sec-default",
+       "to": "../plugins",
+       "label": "blocks user plugins overriding org policy",
+       "kind": "data"
+      },
+      {
+       "from": "sec-default",
+       "to": "engine-contract",
+       "label": "types against $.settings/$.tool/$.hooks",
+       "kind": "data"
+      },
+      {
+       "from": "diff",
+       "to": "engine-contract",
+       "label": "types against the engine's hook declarations",
+       "kind": "data"
+      },
+      {
+       "from": "telemetry",
+       "to": "engine-contract",
+       "label": "declares $.telemetry on EngineInterface",
+       "kind": "data"
+      },
+      {
+       "from": "telemetry",
+       "to": "../plugins",
+       "label": "refuses telemetry calls from installed plugins",
+       "kind": "data"
+      },
+      {
+       "from": "agents-md",
+       "to": "engine-contract",
+       "label": "types against $.fs/$.prompt declarations",
+       "kind": "data"
+      },
+      {
+       "from": "agents-md",
+       "to": "telemetry",
+       "label": "logs usage rows via $.telemetry",
+       "kind": "data"
+      }
+     ],
+     "flows": [
+      {
+       "id": "session-start-gate",
+       "name": "What happens when a managed session starts",
+       "summary": "sec-default seats outermost, then agents-md decides the session's instructions and logs the choice.",
+       "steps": [
+        {
+         "node": "sec-default",
+         "text": "On a managed machine, loads outermost before any other mod or plugin, holding the org's hook/settings/tool policy out of reach."
+        },
+        {
+         "node": "agents-md",
+         "text": "Decides which instruction files apply (CLAUDE.md, AGENTS.md, or managed-only) and hands them to the engine as the session's project instructions."
+        },
+        {
+         "from": "agents-md",
+         "to": "telemetry",
+         "text": "Logs which mode loaded and how many files, via $.telemetry.log and $.telemetry.mark."
+        }
+       ]
+      },
+      {
+       "id": "plugin-tool-lockdown",
+       "name": "What happens when a plugin tries to grant itself a new tool",
+       "summary": "sec-default's policy wins over whatever the plugin or user tier asks for.",
+       "steps": [
+        {
+         "node": "sec-default",
+         "text": "Sits outermost in the hook chain, seeing every plugin.register and tool.register call before the engine does."
+        },
+        {
+         "from": "sec-default",
+         "to": "../plugins",
+         "text": "Refuses a user-tier tool.register outside the org's MCP allowlist and restores the org's own tool list, regardless of what the plugin requested."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "plugins",
+    "label": "Official plugins",
+    "kind": "module",
+    "summary": "Example plugins (commands, agents, skills, hooks) anyone can install into their own Claude Code.",
+    "details": "- Installed via /plugin, from this repo or a marketplace, not built into the binary.\n- Covers plugin authoring (plugin-dev), git workflow (commit-commands), PR review, hookify's custom-hook generator, the ralph-wiggum iteration loop, and more.",
+    "files": [
+     "plugins/README.md"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "git-workflow-commands",
+       "label": "Git workflow commands",
+       "kind": "module",
+       "summary": "Slash commands that wrap git add/commit, push, and PR creation into one step.",
+       "details": "- /commit stages and commits with a generated message.\n- /commit-push-pr commits, pushes, and opens a PR in one call.\n- /clean_gone removes local branches and worktrees whose remote was deleted.",
+       "files": [
+        "plugins/commit-commands/commands/commit.md",
+        "plugins/commit-commands/commands/commit-push-pr.md",
+        "plugins/commit-commands/commands/clean_gone.md",
+        "plugins/commit-commands/README.md"
+       ],
+       "status": "live"
+      },
+      {
+       "id": "pr-review-agents",
+       "label": "PR review agents",
+       "kind": "module",
+       "summary": "Runs several specialized agents over a pull request and scores findings by confidence to cut false positives.",
+       "details": "- code-review runs 5 parallel agents (CLAUDE.md compliance, bugs, history, PR history, comments).\n- pr-review-toolkit adds comment-analyzer, pr-test-analyzer, silent-failure-hunter, type-design-analyzer, code-reviewer, code-simplifier.\n- Both are invoked from a review-pr style slash command.",
+       "files": [
+        "plugins/code-review/commands/code-review.md",
+        "plugins/code-review/README.md",
+        "plugins/pr-review-toolkit/commands/review-pr.md",
+        "plugins/pr-review-toolkit/agents/code-reviewer.md",
+        "plugins/pr-review-toolkit/agents/silent-failure-hunter.md"
+       ],
+       "status": "live"
+      },
+      {
+       "id": "feature-dev-workflow",
+       "label": "Feature dev workflow",
+       "kind": "module",
+       "summary": "A structured, multi-phase command that explores the codebase, designs an architecture, then reviews the result.",
+       "details": "- code-explorer traces execution paths and documents existing patterns.\n- code-architect produces an implementation blueprint from those patterns.\n- code-reviewer checks the finished change for bugs and convention drift.",
+       "files": [
+        "plugins/feature-dev/commands/feature-dev.md",
+        "plugins/feature-dev/agents/code-explorer.md",
+        "plugins/feature-dev/agents/code-architect.md",
+        "plugins/feature-dev/agents/code-reviewer.md",
+        "plugins/feature-dev/README.md"
+       ],
+       "status": "live"
+      },
+      {
+       "id": "plugin-dev-kit",
+       "label": "Plugin dev kit",
+       "kind": "module",
+       "summary": "An 8-phase guided workflow plus seven reference skills for building, validating, and publishing new Claude Code plugins.",
+       "details": "- /plugin-dev:create-plugin walks through component design and implementation.\n- Skills cover hooks, MCP integration, plugin structure, settings, commands, agents, and skill-writing itself.\n- agent-creator and skill-reviewer draft and critique new agents/skills; plugin-validator checks plugin.json and file layout.",
+       "files": [
+        "plugins/plugin-dev/commands/create-plugin.md",
+        "plugins/plugin-dev/agents/plugin-validator.md",
+        "plugins/plugin-dev/agents/agent-creator.md",
+        "plugins/plugin-dev/agents/skill-reviewer.md",
+        "plugins/plugin-dev/README.md"
+       ],
+       "status": "live",
+       "children": {
+        "nodes": [
+         {
+          "id": "developer",
+          "label": "Plugin developer",
+          "kind": "person",
+          "summary": "The person building a new Claude Code plugin, who drives the workflow and answers its clarifying questions."
+         },
+         {
+          "id": "create-plugin-command",
+          "label": "Create-plugin command",
+          "kind": "entry",
+          "summary": "The /plugin-dev:create-plugin slash command: an 8-phase guided workflow from discovery to documentation.",
+          "details": "- Phases: discovery, component planning, detailed design, structure creation, component implementation, validation, testing, documentation.\n- Asks clarifying questions instead of assuming, and tracks progress with TodoWrite.\n- Loads the reference skills and dispatches the three agents as each phase needs them.",
+          "files": [
+           "plugins/plugin-dev/commands/create-plugin.md"
+          ]
+         },
+         {
+          "id": "reference-skills",
+          "label": "Reference skills",
+          "kind": "skill",
+          "summary": "Seven on-demand skills covering plugin structure, hooks, MCP, settings, commands, agents, and skill authoring.",
+          "details": "- Each loads only when its trigger phrases match, keeping context lean (progressive disclosure).\n- plugin-structure covers the manifest and directory layout; hook-development and mcp-integration cover event automation and external integrations; plugin-settings covers .local.md config; command-development, agent-development, and skill-development cover each component type's file format and best practices.",
+          "files": [
+           "plugins/plugin-dev/skills/plugin-structure/SKILL.md",
+           "plugins/plugin-dev/skills/hook-development/SKILL.md",
+           "plugins/plugin-dev/skills/mcp-integration/SKILL.md",
+           "plugins/plugin-dev/skills/plugin-settings/SKILL.md",
+           "plugins/plugin-dev/skills/command-development/SKILL.md",
+           "plugins/plugin-dev/skills/agent-development/SKILL.md",
+           "plugins/plugin-dev/skills/skill-development/SKILL.md"
+          ]
+         },
+         {
+          "id": "agent-creator",
+          "label": "Agent creator",
+          "kind": "agent",
+          "summary": "AI-assisted agent that turns a plain description into a complete, tuned agent markdown file.",
+          "details": "- Uses Claude Code's own proven agent-generation system prompt.\n- Only has Write and Read tools: it drafts the agent file directly, it doesn't explore the repo.",
+          "files": [
+           "plugins/plugin-dev/agents/agent-creator.md",
+           "plugins/plugin-dev/skills/agent-development/references/agent-creation-system-prompt.md"
+          ]
+         },
+         {
+          "id": "plugin-validator",
+          "label": "Plugin validator",
+          "kind": "agent",
+          "summary": "Checks a plugin's manifest and directory structure for correctness, triggered explicitly or right after components are created.",
+          "files": [
+           "plugins/plugin-dev/agents/plugin-validator.md"
+          ]
+         },
+         {
+          "id": "skill-reviewer",
+          "label": "Skill reviewer",
+          "kind": "agent",
+          "summary": "Reviews a newly written or edited skill for trigger strength and structure, against skill-development's best practices.",
+          "files": [
+           "plugins/plugin-dev/agents/skill-reviewer.md"
+          ]
+         },
+         {
+          "id": "utility-scripts",
+          "label": "Validation scripts",
+          "kind": "process",
+          "summary": "Shell scripts the validator agents shell out to: schema checks, a hook test harness, a linter, and frontmatter parsing.",
+          "files": [
+           "plugins/plugin-dev/skills/hook-development/scripts/validate-hook-schema.sh",
+           "plugins/plugin-dev/skills/hook-development/scripts/test-hook.sh",
+           "plugins/plugin-dev/skills/hook-development/scripts/hook-linter.sh",
+           "plugins/plugin-dev/skills/agent-development/scripts/validate-agent.sh",
+           "plugins/plugin-dev/skills/plugin-settings/scripts/validate-settings.sh",
+           "plugins/plugin-dev/skills/plugin-settings/scripts/parse-frontmatter.sh"
+          ]
+         },
+         {
+          "id": "new-plugin",
+          "label": "New plugin files",
+          "kind": "data",
+          "summary": "The plugin directory being created on disk: manifest, commands, agents, skills, and hooks for the developer's own plugin."
+         }
+        ],
+        "edges": [
+         {
+          "from": "developer",
+          "to": "create-plugin-command",
+          "label": "runs /plugin-dev:create-plugin"
+         },
+         {
+          "from": "create-plugin-command",
+          "to": "reference-skills",
+          "label": "loads a skill per phase",
+          "kind": "data"
+         },
+         {
+          "from": "create-plugin-command",
+          "to": "agent-creator",
+          "label": "delegates agent generation"
+         },
+         {
+          "from": "create-plugin-command",
+          "to": "plugin-validator",
+          "label": "runs validation phase"
+         },
+         {
+          "from": "create-plugin-command",
+          "to": "skill-reviewer",
+          "label": "reviews new skills"
+         },
+         {
+          "from": "create-plugin-command",
+          "to": "new-plugin",
+          "label": "writes commands, hooks, manifest",
+          "kind": "data"
+         },
+         {
+          "from": "agent-creator",
+          "to": "new-plugin",
+          "label": "writes agent markdown file",
+          "kind": "data"
+         },
+         {
+          "from": "plugin-validator",
+          "to": "utility-scripts",
+          "label": "shells out to checks"
+         },
+         {
+          "from": "skill-reviewer",
+          "to": "utility-scripts",
+          "label": "shells out to checks"
+         },
+         {
+          "from": "utility-scripts",
+          "to": "new-plugin",
+          "label": "reads and lints files",
+          "kind": "data"
+         },
+         {
+          "from": "plugin-validator",
+          "to": "developer",
+          "label": "reports pass/fail and issues",
+          "kind": "data"
+         },
+         {
+          "from": "create-plugin-command",
+          "to": "../feature-dev-workflow",
+          "label": "modeled on its phased structure"
+         },
+         {
+          "from": "reference-skills",
+          "to": "../ralph-wiggum-loop",
+          "label": "cites as real-world settings example"
+         }
+        ],
+        "flows": [
+         {
+          "id": "build-new-plugin",
+          "name": "What happens when a developer builds a new plugin",
+          "summary": "The guided command walks discovery through documentation, delegating generation and validation to the reference skills and agents.",
+          "steps": [
+           {
+            "from": "developer",
+            "to": "create-plugin-command",
+            "text": "Developer runs the command, optionally with a plugin description."
+           },
+           {
+            "from": "create-plugin-command",
+            "to": "reference-skills",
+            "text": "Command loads plugin-structure (and others as needed) to plan components."
+           },
+           {
+            "from": "create-plugin-command",
+            "to": "agent-creator",
+            "text": "For each needed agent, the command hands off to agent-creator."
+           },
+           {
+            "from": "agent-creator",
+            "to": "new-plugin",
+            "text": "Agent-creator writes the tuned agent markdown file."
+           },
+           {
+            "from": "create-plugin-command",
+            "to": "new-plugin",
+            "text": "Command itself writes the manifest, commands, hooks, and skill files."
+           },
+           {
+            "from": "create-plugin-command",
+            "to": "plugin-validator",
+            "text": "Command runs the validation phase over the finished plugin."
+           },
+           {
+            "from": "plugin-validator",
+            "to": "utility-scripts",
+            "text": "Validator shells out to validate-hook-schema.sh, validate-agent.sh, etc."
+           },
+           {
+            "from": "plugin-validator",
+            "to": "developer",
+            "text": "Validator reports any structural or manifest problems to fix before publishing."
+           }
+          ]
+         },
+         {
+          "id": "review-skill-quality",
+          "name": "What happens when a skill gets reviewed",
+          "summary": "The skill-reviewer agent checks a skill's triggers and structure against the skill-development skill's own standards.",
+          "steps": [
+           {
+            "from": "developer",
+            "to": "skill-reviewer",
+            "text": "Developer asks for a review after writing or editing a skill."
+           },
+           {
+            "from": "skill-reviewer",
+            "to": "reference-skills",
+            "text": "Reviewer checks the skill against skill-development's progressive-disclosure and trigger-phrase guidance."
+           },
+           {
+            "from": "skill-reviewer",
+            "to": "developer",
+            "text": "Reviewer reports weak triggers or structural gaps to fix."
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "id": "hookify",
+       "label": "Hookify",
+       "kind": "module",
+       "summary": "Lets Claude write its own PreToolUse/PostToolUse/Stop/UserPromptSubmit hooks from a plain-language rule or a conversation it analyzes.",
+       "details": "- conversation-analyzer reads a transcript for behaviors worth preventing.\n- writing-rules explains hook-rule syntax; a rule engine (core/) evaluates rules at each hook event.\n- /hookify, /hookify:list, /hookify:configure, /hookify:help manage the installed rules.",
+       "files": [
+        "plugins/hookify/commands/hookify.md",
+        "plugins/hookify/agents/conversation-analyzer.md",
+        "plugins/hookify/core/rule_engine.py",
+        "plugins/hookify/hooks/hooks.json",
+        "plugins/hookify/README.md"
+       ],
+       "status": "live",
+       "children": {
+        "nodes": [
+         {
+          "id": "hookify-command",
+          "label": "Create rule command",
+          "kind": "entry",
+          "summary": "The /hookify slash command: turns a plain-language instruction or a scan of the conversation into a new hook rule.",
+          "details": "- With arguments, uses the text directly plus a quick look at the last 10-15 messages for examples.\n- With no arguments, delegates to the conversation-analyzer agent instead.\n- Asks the user which findings to turn into rules, block vs warn, and what pattern to match, then writes the rule file.",
+          "files": [
+           "plugins/hookify/commands/hookify.md",
+           "plugins/hookify/commands/help.md"
+          ]
+         },
+         {
+          "id": "conversation-analyzer",
+          "label": "Conversation analyzer",
+          "kind": "agent",
+          "summary": "Reads recent user messages and finds corrections, frustration, or repeated issues worth turning into a hook.",
+          "details": "- Looks for explicit \"don't do X\" requests, reverted actions, and repeated mistakes.\n- Converts each finding into a tool name, a candidate regex pattern, and a severity (high/medium/low).\n- Explicitly told to ignore hypotheticals and one-time already-fixed accidents.",
+          "files": [
+           "plugins/hookify/agents/conversation-analyzer.md"
+          ]
+         },
+         {
+          "id": "writing-rules-skill",
+          "label": "Writing-rules skill",
+          "kind": "skill",
+          "summary": "Reference skill every hookify command loads first to get the rule file's frontmatter and pattern syntax right.",
+          "files": [
+           "plugins/hookify/skills/writing-rules/SKILL.md"
+          ]
+         },
+         {
+          "id": "manage-rules-commands",
+          "label": "List & configure commands",
+          "kind": "entry",
+          "summary": "The /hookify:list and /hookify:configure commands: show existing rules and toggle them on or off.",
+          "details": "- list reads every rule file's frontmatter and prints a table (name, enabled, event, pattern).\n- configure lets the user pick rules via AskUserQuestion, then edits enabled: true/false in place.",
+          "files": [
+           "plugins/hookify/commands/list.md",
+           "plugins/hookify/commands/configure.md"
+          ]
+         },
+         {
+          "id": "rule-files",
+          "label": "Rule files",
+          "kind": "data",
+          "summary": "User-authored .claude/hookify.<name>.local.md files in the current project; the actual configuration.",
+          "details": "- Live in the project's own .claude/ folder, not in this plugin's repo.\n- Each file is YAML frontmatter (name, enabled, event, pattern or conditions, action) plus a markdown message body.\n- Meant to be git-ignored; take effect immediately, no restart."
+         },
+         {
+          "id": "example-rules",
+          "label": "Example rules",
+          "kind": "doc",
+          "summary": "Shipped sample .local.md files (dangerous rm, console.log, sensitive files, require-tests) users copy from.",
+          "files": [
+           "plugins/hookify/examples/"
+          ]
+         },
+         {
+          "id": "config-loader",
+          "label": "Rule loader",
+          "kind": "module",
+          "summary": "Globs the project's .claude/hookify.*.local.md files and parses each into a Rule/Condition object.",
+          "files": [
+           "plugins/hookify/core/config_loader.py"
+          ]
+         },
+         {
+          "id": "rule-engine",
+          "label": "Rule engine",
+          "kind": "process",
+          "summary": "Compiles each rule's regex (cached) and checks it against the current tool call, combining warn/block results.",
+          "details": "Blocking matches take priority over warning matches; all matching messages get combined into one response.",
+          "files": [
+           "plugins/hookify/core/rule_engine.py"
+          ]
+         },
+         {
+          "id": "hook-executors",
+          "label": "Hook executors",
+          "kind": "hook",
+          "summary": "Four scripts wired into hooks.json that Claude Code itself invokes on PreToolUse, PostToolUse, Stop, and UserPromptSubmit.",
+          "details": "- Each script reads the tool-call JSON from stdin, maps tool name to an event type (bash/file/stop/prompt), and asks the rule engine to evaluate it.\n- Import failures are swallowed into a systemMessage so a broken rule file never blocks Claude Code itself.",
+          "files": [
+           "plugins/hookify/hooks/hooks.json",
+           "plugins/hookify/hooks/pretooluse.py",
+           "plugins/hookify/hooks/posttooluse.py",
+           "plugins/hookify/hooks/stop.py",
+           "plugins/hookify/hooks/userpromptsubmit.py"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "hookify-command",
+          "to": "conversation-analyzer",
+          "label": "delegates analysis to (no args)",
+          "kind": ""
+         },
+         {
+          "from": "hookify-command",
+          "to": "writing-rules-skill",
+          "label": "loads rule format from",
+          "kind": ""
+         },
+         {
+          "from": "hookify-command",
+          "to": "rule-files",
+          "label": "writes new rule file",
+          "kind": "data"
+         },
+         {
+          "from": "manage-rules-commands",
+          "to": "writing-rules-skill",
+          "label": "loads rule format from",
+          "kind": ""
+         },
+         {
+          "from": "manage-rules-commands",
+          "to": "rule-files",
+          "label": "reads and toggles enabled flag",
+          "kind": "data"
+         },
+         {
+          "from": "example-rules",
+          "to": "rule-files",
+          "label": "template for user-created",
+          "kind": ""
+         },
+         {
+          "from": "hook-executors",
+          "to": "config-loader",
+          "label": "loads matching rules via",
+          "kind": ""
+         },
+         {
+          "from": "hook-executors",
+          "to": "rule-engine",
+          "label": "evaluates tool input via",
+          "kind": ""
+         },
+         {
+          "from": "config-loader",
+          "to": "rule-files",
+          "label": "parses .local.md files from",
+          "kind": "data"
+         },
+         {
+          "from": "rule-engine",
+          "to": "config-loader",
+          "label": "imports Rule/Condition types",
+          "kind": ""
+         },
+         {
+          "from": "hook-executors",
+          "to": "../security-review-hook",
+          "label": "both run as PreToolUse hooks",
+          "kind": ""
+         }
+        ],
+        "flows": [
+         {
+          "id": "create-rule-from-conversation",
+          "name": "What happens when a user runs /hookify",
+          "summary": "A plain-language complaint turns into an active rule file in one command.",
+          "steps": [
+           {
+            "node": "hookify-command",
+            "text": "User runs /hookify, with or without a specific instruction"
+           },
+           {
+            "from": "hookify-command",
+            "to": "conversation-analyzer",
+            "text": "If no instruction given, hands off recent messages to find frustration/correction signals"
+           },
+           {
+            "from": "conversation-analyzer",
+            "to": "hookify-command",
+            "text": "Returns candidate patterns with severity and suggested rule names"
+           },
+           {
+            "from": "hookify-command",
+            "to": "writing-rules-skill",
+            "text": "Loads the correct frontmatter/pattern syntax before writing anything"
+           },
+           {
+            "from": "hookify-command",
+            "to": "rule-files",
+            "text": "Writes the confirmed rule as a new .claude/hookify.<name>.local.md file"
+           }
+          ]
+         },
+         {
+          "id": "enforce-rule-at-runtime",
+          "name": "What happens on the next tool call",
+          "summary": "Every Bash, Edit, Write, or Stop in the session gets checked against the rule files before Claude Code proceeds.",
+          "steps": [
+           {
+            "node": "hook-executors",
+            "text": "Claude Code fires the matching hook (e.g. PreToolUse) before the tool runs"
+           },
+           {
+            "from": "hook-executors",
+            "to": "config-loader",
+            "text": "Asks for every enabled rule whose event matches this tool"
+           },
+           {
+            "from": "config-loader",
+            "to": "rule-files",
+            "text": "Globs and parses the project's current .local.md files fresh each time"
+           },
+           {
+            "from": "hook-executors",
+            "to": "rule-engine",
+            "text": "Passes the tool's input data in for evaluation"
+           },
+           {
+            "from": "rule-engine",
+            "to": "hook-executors",
+            "text": "Returns a combined warn/block decision, which Claude Code surfaces or enforces"
+           }
+          ]
+         },
+         {
+          "id": "manage-existing-rules",
+          "name": "What happens when a user lists or toggles rules",
+          "summary": "Rules can be reviewed and switched on/off without ever leaving the chat.",
+          "steps": [
+           {
+            "node": "manage-rules-commands",
+            "text": "User runs /hookify:list or /hookify:configure"
+           },
+           {
+            "from": "manage-rules-commands",
+            "to": "rule-files",
+            "text": "Reads every rule file's frontmatter to show current name/event/enabled state"
+           },
+           {
+            "from": "manage-rules-commands",
+            "to": "rule-files",
+            "text": "On configure, edits enabled: true/false directly in the chosen file"
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "id": "security-review-hook",
+       "label": "Security review hook",
+       "kind": "hook",
+       "summary": "A PreToolUse hook that scans edits for 9 risky patterns (injection, XSS, eval, pickle, os.system, etc.) and warns Claude.",
+       "details": "- security_reminder_hook.py is the entry point; patterns.py holds the regex checks.\n- llm.py adds an LLM-based second pass for subtler issues.\n- gitutil.py/diffstate.py scope the check to the current diff; session_state.py avoids repeat warnings.",
+       "files": [
+        "plugins/security-guidance/hooks/security_reminder_hook.py",
+        "plugins/security-guidance/hooks/llm.py",
+        "plugins/security-guidance/hooks/patterns.py",
+        "plugins/security-guidance/hooks/hooks.json",
+        "plugins/security-guidance/README.md"
+       ],
+       "status": "live"
+      },
+      {
+       "id": "agent-sdk-dev-kit",
+       "label": "Agent SDK dev kit",
+       "kind": "module",
+       "summary": "Scaffolds a new Claude Agent SDK project and verifies a Python or TypeScript one follows SDK best practices.",
+       "details": "- /new-sdk-app sets up a fresh Agent SDK application.\n- agent-sdk-verifier-py and agent-sdk-verifier-ts check an existing app's config and docs against SDK conventions.",
+       "files": [
+        "plugins/agent-sdk-dev/commands/new-sdk-app.md",
+        "plugins/agent-sdk-dev/agents/agent-sdk-verifier-py.md",
+        "plugins/agent-sdk-dev/agents/agent-sdk-verifier-ts.md",
+        "plugins/agent-sdk-dev/README.md"
+       ],
+       "status": "live"
+      },
+      {
+       "id": "standalone-skills",
+       "label": "Standalone skills",
+       "kind": "skill",
+       "summary": "Two auto-invoked skills with no commands or hooks: migrating prompts/code to Opus 4.5, and frontend visual-design guidance.",
+       "details": "- claude-opus-4-5-migration rewrites model strings, beta headers, and prompt phrasing for the newer model.\n- frontend-design triggers on UI work and pushes toward distinctive layouts/typography instead of generic AI aesthetics.",
+       "files": [
+        "plugins/claude-opus-4-5-migration/skills/claude-opus-4-5-migration/SKILL.md",
+        "plugins/claude-opus-4-5-migration/README.md",
+        "plugins/frontend-design/skills/frontend-design/SKILL.md",
+        "plugins/frontend-design/README.md"
+       ],
+       "status": "live"
+      },
+      {
+       "id": "session-output-styles",
+       "label": "Session output styles",
+       "kind": "hook",
+       "summary": "Two SessionStart hooks that recreate output styles no longer built into Claude Code: explanatory asides and a learning mode.",
+       "details": "- explanatory-output-style injects educational context about implementation choices at session start.\n- learning-output-style does the same plus asks the user to write small (5-10 line) code contributions at decision points.",
+       "files": [
+        "plugins/explanatory-output-style/hooks-handlers/session-start.sh",
+        "plugins/explanatory-output-style/README.md",
+        "plugins/learning-output-style/hooks-handlers/session-start.sh",
+        "plugins/learning-output-style/README.md"
+       ],
+       "status": "live"
+      },
+      {
+       "id": "ralph-wiggum-loop",
+       "label": "Ralph Wiggum loop",
+       "kind": "hook",
+       "summary": "A Stop hook that refuses to let the session end while a loop is active, feeding Claude's last output back in to keep iterating.",
+       "details": "- /ralph-loop starts the loop (setup-ralph-loop.sh writes a state file); /cancel-ralph ends it.\n- stop-hook.sh intercepts the session's exit attempt and re-prompts Claude with its own prior output.",
+       "files": [
+        "plugins/ralph-wiggum/commands/ralph-loop.md",
+        "plugins/ralph-wiggum/commands/cancel-ralph.md",
+        "plugins/ralph-wiggum/hooks/stop-hook.sh",
+        "plugins/ralph-wiggum/scripts/setup-ralph-loop.sh",
+        "plugins/ralph-wiggum/README.md"
+       ],
+       "status": "live"
+      }
+     ],
+     "edges": [
+      {
+       "from": "git-workflow-commands",
+       "to": "../cli-binary",
+       "label": "adds /commit, /commit-push-pr",
+       "kind": ""
+      },
+      {
+       "from": "pr-review-agents",
+       "to": "../cli-binary",
+       "label": "adds /review-pr, /code-review",
+       "kind": ""
+      },
+      {
+       "from": "pr-review-agents",
+       "to": "../outside-services",
+       "label": "reviews via Claude API",
+       "kind": "data"
+      },
+      {
+       "from": "feature-dev-workflow",
+       "to": "../cli-binary",
+       "label": "adds /feature-dev",
+       "kind": ""
+      },
+      {
+       "from": "plugin-dev-kit",
+       "to": "../cli-binary",
+       "label": "adds /plugin-dev:create-plugin",
+       "kind": ""
+      },
+      {
+       "from": "../end-user",
+       "to": "plugin-dev-kit",
+       "label": "builds custom plugins with",
+       "kind": ""
+      },
+      {
+       "from": "../developer",
+       "to": "plugin-dev-kit",
+       "label": "maintains the toolkit",
+       "kind": ""
+      },
+      {
+       "from": "hookify",
+       "to": "../cli-binary",
+       "label": "installs generated hooks into",
+       "kind": ""
+      },
+      {
+       "from": "security-review-hook",
+       "to": "../cli-binary",
+       "label": "fires on Edit/Write calls",
+       "kind": "async"
+      },
+      {
+       "from": "security-review-hook",
+       "to": "../outside-services",
+       "label": "calls Claude API to analyze diff",
+       "kind": "data"
+      },
+      {
+       "from": "agent-sdk-dev-kit",
+       "to": "../cli-binary",
+       "label": "adds /new-sdk-app",
+       "kind": ""
+      },
+      {
+       "from": "standalone-skills",
+       "to": "../cli-binary",
+       "label": "auto-invoked during a session",
+       "kind": ""
+      },
+      {
+       "from": "session-output-styles",
+       "to": "../cli-binary",
+       "label": "fires on SessionStart",
+       "kind": "async"
+      },
+      {
+       "from": "ralph-wiggum-loop",
+       "to": "../cli-binary",
+       "label": "intercepts Stop to keep looping",
+       "kind": "async"
+      },
+      {
+       "from": "../end-user",
+       "to": "ralph-wiggum-loop",
+       "label": "starts with /ralph-loop",
+       "kind": ""
+      }
+     ],
+     "flows": [
+      {
+       "id": "security-hook-fires",
+       "name": "What happens when Claude edits a risky file",
+       "summary": "The security plugin catches risky patterns before a write lands and can escalate to an LLM check.",
+       "steps": [
+        {
+         "node": "security-review-hook",
+         "text": "PreToolUse intercepts the Edit/Write call before it executes."
+        },
+        {
+         "node": "security-review-hook",
+         "text": "Regex patterns scan the diff for the 9 known risk patterns."
+        },
+        {
+         "from": "security-review-hook",
+         "to": "../outside-services",
+         "text": "For subtler cases, llm.py sends the diff to the Claude API for a second opinion."
+        },
+        {
+         "from": "security-review-hook",
+         "to": "../cli-binary",
+         "text": "A warning surfaces in the session if something looks risky; session_state.py avoids repeating it."
+        }
+       ]
+      },
+      {
+       "id": "build-a-plugin",
+       "name": "What happens when someone builds a new plugin",
+       "summary": "plugin-dev's guided workflow turns an idea into an installable plugin.",
+       "steps": [
+        {
+         "from": "../end-user",
+         "to": "plugin-dev-kit",
+         "text": "Runs /plugin-dev:create-plugin to start the 8-phase build."
+        },
+        {
+         "node": "plugin-dev-kit",
+         "text": "Skills guide the user through hooks, commands, skills, MCP config, and settings."
+        },
+        {
+         "from": "plugin-dev-kit",
+         "to": "../cli-binary",
+         "text": "plugin-validator checks the result, then it installs like any other plugin."
+        }
+       ]
+      },
+      {
+       "id": "ralph-loop-cycle",
+       "name": "What happens during a Ralph Wiggum loop",
+       "summary": "The Stop hook keeps feeding Claude's own output back in until the task is done.",
+       "steps": [
+        {
+         "from": "../end-user",
+         "to": "ralph-wiggum-loop",
+         "text": "Starts the loop with /ralph-loop; setup-ralph-loop.sh writes a state file."
+        },
+        {
+         "from": "ralph-wiggum-loop",
+         "to": "../cli-binary",
+         "text": "stop-hook.sh intercepts the session's exit attempt."
+        },
+        {
+         "node": "ralph-wiggum-loop",
+         "text": "Claude's last output is fed back in as the next prompt, and the cycle repeats until /cancel-ralph or completion."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "examples",
+    "label": "Deployment examples",
+    "kind": "config",
+    "summary": "Templates for rolling Claude Code out to a team: MDM profiles, settings policy, and a self-hosted API gateway.",
+    "details": "- MDM templates for Jamf/Kandji/Intune/Group Policy deploy managed-settings.json to a fleet.\n- Settings templates (lax/strict/bash-sandbox) restrict permissions, hooks, and tools org-wide.\n- Gateway examples (AWS/GCP Terraform + setup scripts) stand up a reverse proxy in front of the Claude API.\n- Community-maintained starting points, not supported configs.",
+    "files": [
+     "examples/mdm/README.md",
+     "examples/settings/README.md"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "mdm-templates",
+       "label": "MDM deployment templates",
+       "kind": "config",
+       "summary": "Per-platform wrappers (Jamf, Kandji, Intune, Group Policy) that push the same managed-settings.json policy fleet-wide.",
+       "details": "- All templates encode the same minimal example key (permissions.disableBypassPermissionsMode).\n- Community-maintained; the README warns they may be unsupported or incorrect.\n- Settings deployed this way sit at the top of the precedence order and cannot be overridden by users.",
+       "files": [
+        "examples/mdm/README.md",
+        "examples/mdm/managed-settings.json",
+        "examples/mdm/macos/com.anthropic.claudecode.plist",
+        "examples/mdm/macos/com.anthropic.claudecode.mobileconfig",
+        "examples/mdm/windows/Set-ClaudeCodePolicy.ps1",
+        "examples/mdm/windows/ClaudeCode.admx",
+        "examples/mdm/windows/en-US/ClaudeCode.adml"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "macos-mdm",
+          "label": "macOS MDM payloads",
+          "kind": "config",
+          "summary": "Custom Settings plist for Jamf/Kandji, plus a full .mobileconfig profile for local testing.",
+          "files": [
+           "examples/mdm/macos/com.anthropic.claudecode.plist",
+           "examples/mdm/macos/com.anthropic.claudecode.mobileconfig"
+          ]
+         },
+         {
+          "id": "windows-mdm",
+          "label": "Windows MDM payloads",
+          "kind": "config",
+          "summary": "PowerShell script for Intune platform scripts, plus ADMX/ADML templates for Group Policy or Intune ADMX import.",
+          "files": [
+           "examples/mdm/windows/Set-ClaudeCodePolicy.ps1",
+           "examples/mdm/windows/ClaudeCode.admx",
+           "examples/mdm/windows/en-US/ClaudeCode.adml"
+          ]
+         },
+         {
+          "id": "managed-settings-base",
+          "label": "Platform-neutral base policy",
+          "kind": "config",
+          "summary": "The one managed-settings.json any MDM can drop straight into the system config directory.",
+          "files": [
+           "examples/mdm/managed-settings.json"
+          ]
+         }
+        ],
+        "edges": []
+       }
+      },
+      {
+       "id": "settings-templates",
+       "label": "Settings file examples",
+       "kind": "config",
+       "summary": "Three ready-made settings.json variants (lax, strict, bash-sandbox) for organization-wide rollout.",
+       "details": "- Differ in which precedence-only keys they set: blocking marketplaces, hooks, bash approval, or running Bash inside a sandbox.\n- Meant to be merged or used as managed-settings.json / settings.json / settings.local.json starting points.",
+       "files": [
+        "examples/settings/README.md",
+        "examples/settings/settings-lax.json",
+        "examples/settings/settings-strict.json",
+        "examples/settings/settings-bash-sandbox.json"
+       ]
+      },
+      {
+       "id": "gateway-aws",
+       "label": "Gateway on AWS",
+       "kind": "config",
+       "summary": "Reference deployment for a self-hosted Claude apps gateway on AWS, fronting Amazon Bedrock.",
+       "details": "- setup.sh scripts the walkthrough end to end via the aws CLI: security groups, IAM roles, an ECR image with gateway.yaml baked in, RDS for Postgres, Secrets Manager, and an ECS Fargate service behind an internal ALB.\n- terraform/ provisions the same architecture as code (two-pass apply).\n- Idempotent and reuse-by-name aware; posture drift is checked and warned about, never silently adopted.\n- Not covered: the EKS track, console-only Bedrock model access, and client MDM push (that's the mdm-templates node).",
+       "files": [
+        "examples/gateway/aws/setup.sh",
+        "examples/gateway/aws/Dockerfile",
+        "examples/gateway/aws/gateway.yaml.example",
+        "examples/gateway/aws/terraform/main.tf",
+        "examples/gateway/aws/terraform/variables.tf",
+        "examples/gateway/aws/terraform/outputs.tf",
+        "examples/gateway/aws/terraform/versions.tf",
+        "examples/gateway/aws/README.md"
+       ]
+      },
+      {
+       "id": "gateway-gcp",
+       "label": "Gateway on GCP",
+       "kind": "config",
+       "summary": "Reference deployment for the same self-hosted gateway on GCP, fronting Agent Platform (Vertex AI).",
+       "details": "- setup.sh scripts the walkthrough via gcloud: Cloud Run or GKE, Cloud SQL for Postgres, Secret Manager, service-account auth to Agent Platform.\n- terraform/ is the IaC equivalent of setup.sh, same env-overridable defaults as the AWS track.",
+       "files": [
+        "examples/gateway/gcp/setup.sh",
+        "examples/gateway/gcp/Dockerfile",
+        "examples/gateway/gcp/gateway.yaml.example",
+        "examples/gateway/gcp/terraform/main.tf",
+        "examples/gateway/gcp/terraform/variables.tf",
+        "examples/gateway/gcp/terraform/outputs.tf",
+        "examples/gateway/gcp/terraform/README.md"
+       ]
+      },
+      {
+       "id": "bash-hook-example",
+       "label": "Bash validator hook example",
+       "kind": "hook",
+       "summary": "A sample PreToolUse hook that rewrites or blocks Bash commands before they run (e.g. grep to rg).",
+       "details": "Installed by pointing a PreToolUse/Bash hook entry in settings at this script's path; matches commands against a small regex rule list and can rewrite the command or reject it with a message.",
+       "files": [
+        "examples/hooks/bash_command_validator_example.py"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "../end-user",
+       "to": "mdm-templates",
+       "label": "deploys policy fleet-wide",
+       "kind": ""
+      },
+      {
+       "from": "../end-user",
+       "to": "settings-templates",
+       "label": "copies into own settings",
+       "kind": ""
+      },
+      {
+       "from": "../end-user",
+       "to": "gateway-aws",
+       "label": "self-hosts for their team",
+       "kind": ""
+      },
+      {
+       "from": "../end-user",
+       "to": "gateway-gcp",
+       "label": "self-hosts for their team",
+       "kind": ""
+      },
+      {
+       "from": "settings-templates",
+       "to": "mdm-templates",
+       "label": "wrapped for fleet-wide push",
+       "kind": "data"
+      },
+      {
+       "from": "../cli-binary",
+       "to": "bash-hook-example",
+       "label": "fires on every Bash call",
+       "kind": "async"
+      },
+      {
+       "from": "../developer",
+       "to": "bash-hook-example",
+       "label": "writes the example hook",
+       "kind": ""
+      }
+     ],
+     "flows": [
+      {
+       "id": "fleet-settings-rollout",
+       "name": "What happens when an org rolls out managed settings",
+       "summary": "An admin starts from a settings template, wraps it for their MDM platform, and every install picks it up as the top-precedence config.",
+       "steps": [
+        {
+         "node": "settings-templates",
+         "text": "Admin picks the lax, strict, or bash-sandbox template as a starting point"
+        },
+        {
+         "node": "mdm-templates",
+         "text": "Wraps that JSON into a Jamf, Kandji, Intune, or Group Policy payload"
+        },
+        {
+         "from": "mdm-templates",
+         "to": "../cli-binary",
+         "text": "MDM pushes it to managed-settings.json on each machine; the CLI reads it at startup as the top-precedence source"
+        }
+       ]
+      },
+      {
+       "id": "gateway-standup",
+       "name": "What happens when a team stands up a self-hosted gateway",
+       "summary": "setup.sh or its Terraform equivalent provisions the gateway container behind a load balancer, pointed at the team's own cloud account.",
+       "steps": [
+        {
+         "node": "gateway-aws",
+         "text": "setup.sh (or terraform/) provisions ECS Fargate, RDS, and secrets on AWS, with gateway.yaml baked into the image"
+        },
+        {
+         "node": "gateway-gcp",
+         "text": "The equivalent track provisions Cloud Run and Cloud SQL on GCP"
+        },
+        {
+         "from": "gateway-aws",
+         "to": "../end-user",
+         "text": "End users point their CLI at the internal gateway URL instead of api.anthropic.com"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "repo-automation",
+    "label": "Repo automation",
+    "kind": "process",
+    "summary": "GitHub Actions workflows and scripts that triage issues/PRs and answer @claude mentions on this repo, behind an egress firewall.",
+    "details": "- claude.yml runs the Claude Code action on @claude mentions, with --permission-mode auto so unlisted tool calls go through Claude's own safety review.\n- Runs on GitHub's egress-firewall runner; .github/egress-firewall.yaml allow-lists every host a job may reach (Claude API, GitHub API, npm, apt).\n- workflow-hardening.yml fails a workflow that calls Claude without the firewall runner or auto permission mode, unless it's named in an exemption table.\n- Other workflows auto-close/dedupe/label-lifecycle issues via scripts/ (gh.sh is a locked-down gh CLI wrapper).",
+    "files": [
+     "CLAUDE.md",
+     ".github/workflows/claude.yml",
+     ".github/egress-firewall.yaml",
+     "scripts/gh.sh"
+    ],
+    "children": {
+     "direction": "RIGHT",
+     "nodes": [
+      {
+       "id": "claude-responder",
+       "label": "@claude responder",
+       "kind": "agent",
+       "summary": "Runs Claude Code when someone writes \"@claude\" in an issue, PR comment, or review, letting it reply or make edits.",
+       "details": "- Fires on issue_comment, pull_request_review_comment, issues (opened/assigned), and pull_request_review, gated on the comment/issue body containing \"@claude\".\n- Authenticates to the Claude API via Workload Identity Federation (its GitHub OIDC token is exchanged for a short-lived API token) instead of a static key.\n- The action's own default for @claude mentions is --permission-mode acceptEdits; this workflow's claude_args overrides it to --permission-mode auto, so anything outside the allowed tools still needs Claude Code's own safety review.",
+       "files": [
+        ".github/workflows/claude.yml"
+       ]
+      },
+      {
+       "id": "issue-triage",
+       "label": "Issue triage",
+       "kind": "agent",
+       "summary": "Runs Claude Code on every new issue or comment to judge if it's about Claude Code and relabel it through a restricted tool.",
+       "details": "- Triggered on issues opened and on non-bot issue_comment created; cancels an in-progress run for the same issue.\n- Its prompt (.claude/commands/triage-issue.md) may only read labels/issues through scripts/gh.sh and apply changes through scripts/edit-issue-labels.sh, and is told never to post a comment.\n- claude_args disallows Write/Edit/WebFetch/WebSearch and forces claude-opus-4-6, the minimum model that runs the --permission-mode auto safety review.",
+       "files": [
+        ".github/workflows/claude-issue-triage.yml",
+        ".claude/commands/triage-issue.md"
+       ]
+      },
+      {
+       "id": "dedupe-agent",
+       "label": "Duplicate finder",
+       "kind": "agent",
+       "summary": "Runs Claude Code on every new issue to search for likely duplicates and post up to 3 matches as one comment.",
+       "details": "- Its prompt (.claude/commands/dedupe.md) fans out into sub-agents: one checks whether dedupe is even needed, one summarizes the issue, five search in parallel with diverse keywords, one filters false positives.\n- May only read through scripts/gh.sh and write through scripts/comment-on-duplicates.sh; claude_args disallows file-editing and web tools.\n- A second workflow step logs a \"duplicate comment added\" event to Statsig after the job runs (skipped silently if no API key is configured).",
+       "files": [
+        ".github/workflows/claude-dedupe-issues.yml",
+        ".claude/commands/dedupe.md"
+       ]
+      },
+      {
+       "id": "gh-toolkit",
+       "label": "Restricted GH scripts",
+       "kind": "module",
+       "summary": "The only way the triage and dedupe agents may touch GitHub: wrapper scripts that whitelist specific reads and the one write each agent needs.",
+       "details": "- gh.sh allows only `issue view`, `issue list`, `search issues`, `label list` and a few flags, and blocks repo:/org:/user: search qualifiers.\n- edit-issue-labels.sh and comment-on-duplicates.sh read the target issue number from the triggering GitHub event payload, not from an argument, and silently drop any label/issue that doesn't already exist.",
+       "files": [
+        "scripts/gh.sh",
+        "scripts/edit-issue-labels.sh",
+        "scripts/comment-on-duplicates.sh"
+       ]
+      },
+      {
+       "id": "lifecycle-rules",
+       "label": "Lifecycle rule table",
+       "kind": "data",
+       "summary": "Single source of truth for the issue lifecycle labels, their timeout in days, and their nudge message.",
+       "details": "Five labels in order: invalid (3d), needs-repro (7d), needs-info (7d), stale (14d), autoclose (14d). Also sets the upvote threshold that exempts a popular issue from going stale.",
+       "files": [
+        "scripts/issue-lifecycle.ts"
+       ]
+      },
+      {
+       "id": "lifecycle-engine",
+       "label": "Issue lifecycle sweeper",
+       "kind": "schedule",
+       "summary": "Scheduled escalation through the lifecycle labels, a nudge comment on each new label, and a reset the moment someone replies.",
+       "files": [
+        ".github/workflows/sweep.yml",
+        "scripts/sweep.ts",
+        ".github/workflows/issue-lifecycle-comment.yml",
+        ".github/workflows/remove-autoclose-label.yml"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "sweep-job",
+          "label": "Sweep (cron)",
+          "kind": "schedule",
+          "summary": "Runs at 10:00 and 22:00 UTC; walks open issues and applies the next lifecycle label or closes ones past the autoclose timeout.",
+          "files": [
+           ".github/workflows/sweep.yml",
+           "scripts/sweep.ts"
+          ]
+         },
+         {
+          "id": "lifecycle-comment-job",
+          "label": "Nudge comment",
+          "kind": "process",
+          "summary": "Fires whenever a lifecycle label is applied; posts the matching nudge message so the author gets a heads-up before the next step.",
+          "files": [
+           ".github/workflows/issue-lifecycle-comment.yml",
+           "scripts/lifecycle-comment.ts"
+          ]
+         },
+         {
+          "id": "remove-autoclose",
+          "label": "Un-stick on reply",
+          "kind": "process",
+          "summary": "Strips the autoclose label the moment a non-bot comment lands on a labeled issue, cancelling the pending close.",
+          "files": [
+           ".github/workflows/remove-autoclose-label.yml"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "sweep-job",
+          "to": "../lifecycle-rules",
+          "label": "reads timeouts per label",
+          "kind": "data"
+         },
+         {
+          "from": "lifecycle-comment-job",
+          "to": "../lifecycle-rules",
+          "label": "reads nudge message",
+          "kind": "data"
+         },
+         {
+          "from": "../../end-user",
+          "to": "remove-autoclose",
+          "label": "comments, cancelling the close",
+          "kind": "async"
+         }
+        ]
+       }
+      },
+      {
+       "id": "dup-cleanup",
+       "label": "Duplicate auto-close",
+       "kind": "schedule",
+       "summary": "Closes an issue 3 days after the duplicate finder's comment if nobody objected, plus a manual backfill for old issues that never got one.",
+       "files": [
+        ".github/workflows/auto-close-duplicates.yml",
+        "scripts/auto-close-duplicates.ts",
+        ".github/workflows/backfill-duplicate-comments.yml",
+        "scripts/backfill-duplicate-comments.ts"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "auto-close-job",
+          "label": "Auto-close (cron)",
+          "kind": "schedule",
+          "summary": "Runs daily at 09:00 UTC; finds issues whose duplicate-finder comment is older than 3 days with no new comment or 👎, and closes them.",
+          "files": [
+           ".github/workflows/auto-close-duplicates.yml",
+           "scripts/auto-close-duplicates.ts"
+          ]
+         },
+         {
+          "id": "backfill-job",
+          "label": "Backfill detection",
+          "kind": "process",
+          "summary": "Manually-triggered job that re-runs duplicate detection on old issues closed without ever getting a duplicate comment; supports dry-run.",
+          "files": [
+           ".github/workflows/backfill-duplicate-comments.yml",
+           "scripts/backfill-duplicate-comments.ts"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "auto-close-job",
+          "to": "../dedupe-agent",
+          "label": "closes after its unanswered comment",
+          "kind": ""
+         },
+         {
+          "from": "backfill-job",
+          "to": "../dedupe-agent",
+          "label": "re-runs detection it skipped",
+          "kind": ""
+         }
+        ]
+       }
+      },
+      {
+       "id": "ci-guardrails",
+       "label": "CI guardrails",
+       "kind": "test",
+       "summary": "PR checks that keep the automation safe: enforce the Claude-calling jobs' firewall settings, flag risky new permissions, and test the mod plugins.",
+       "files": [
+        ".github/workflows/workflow-hardening.yml",
+        ".github/scripts/check_workflow_hardening.py",
+        ".github/workflows/non-write-users-check.yml",
+        ".github/workflows/mod-tests.yml",
+        "CLAUDE.md"
+       ],
+       "children": {
+        "nodes": [
+         {
+          "id": "hardening-check",
+          "label": "Hardening check",
+          "kind": "test",
+          "summary": "Fails a PR if a Claude-calling job skips the firewall runner or --permission-mode auto, or the allow-list is misconfigured.",
+          "files": [
+           ".github/workflows/workflow-hardening.yml",
+           ".github/scripts/check_workflow_hardening.py",
+           "CLAUDE.md"
+          ]
+         },
+         {
+          "id": "non-write-check",
+          "label": "Permission-risk flag",
+          "kind": "process",
+          "summary": "Comments on a PR the first time it adds or edits allowed_non_write_users in a workflow file, since that lets non-write users trigger Claude.",
+          "files": [
+           ".github/workflows/non-write-users-check.yml"
+          ]
+         },
+         {
+          "id": "mod-tests",
+          "label": "Mod plugin tests",
+          "kind": "test",
+          "summary": "Typechecks every mod's hooks and runs its test suite when mods/ changes.",
+          "files": [
+           ".github/workflows/mod-tests.yml"
+          ]
+         }
+        ],
+        "edges": [
+         {
+          "from": "hardening-check",
+          "to": "../egress-firewall",
+          "label": "validates the allow-list",
+          "kind": ""
+         },
+         {
+          "from": "hardening-check",
+          "to": "../claude-responder",
+          "label": "checks hardening on",
+          "kind": ""
+         },
+         {
+          "from": "hardening-check",
+          "to": "../issue-triage",
+          "label": "checks hardening on",
+          "kind": ""
+         },
+         {
+          "from": "hardening-check",
+          "to": "../dedupe-agent",
+          "label": "checks hardening on",
+          "kind": ""
+         },
+         {
+          "from": "mod-tests",
+          "to": "../../mods",
+          "label": "typechecks and tests",
+          "kind": ""
+         },
+         {
+          "from": "non-write-check",
+          "to": "../../developer",
+          "label": "warns on a risky new permission",
+          "kind": "async"
+         }
+        ]
+       }
+      },
+      {
+       "id": "event-logging",
+       "label": "Telemetry & notify",
+       "kind": "process",
+       "summary": "Side-channel logging and cross-repo notification triggered by issue events, separate from the agents' own work.",
+       "details": "log-issue-events.yml logs every issue open/close to Statsig. issue-opened-dispatch.yml fires a repository_dispatch to a separate repo on issue open so it can react too, swallowing any failure.",
+       "files": [
+        ".github/workflows/log-issue-events.yml",
+        ".github/workflows/issue-opened-dispatch.yml"
+       ]
+      },
+      {
+       "id": "egress-firewall",
+       "label": "Egress firewall allow-list",
+       "kind": "config",
+       "summary": "The host allow-list the three Claude-calling jobs are restricted to when they run on GitHub's firewalled runner.",
+       "details": "Allows api.anthropic.com, api.github.com, claude.ai, downloads.claude.ai, the bun/npm/apt mirrors the Claude Code action needs, and events.statsigapi.net. mode: enforce blocks everything else.",
+       "files": [
+        ".github/egress-firewall.yaml",
+        "CLAUDE.md"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "claude-responder",
+       "to": "egress-firewall",
+       "label": "runs behind",
+       "kind": ""
+      },
+      {
+       "from": "claude-responder",
+       "to": "../outside-services",
+       "label": "asks Claude API to analyze and reply",
+       "kind": "data"
+      },
+      {
+       "from": "../end-user",
+       "to": "claude-responder",
+       "label": "writes @claude mentions",
+       "kind": "async"
+      },
+      {
+       "from": "issue-triage",
+       "to": "egress-firewall",
+       "label": "runs behind",
+       "kind": ""
+      },
+      {
+       "from": "issue-triage",
+       "to": "gh-toolkit",
+       "label": "reads issues, edits labels through",
+       "kind": "data"
+      },
+      {
+       "from": "issue-triage",
+       "to": "../outside-services",
+       "label": "asks Claude API to decide labels",
+       "kind": "data"
+      },
+      {
+       "from": "../end-user",
+       "to": "issue-triage",
+       "label": "opens issues that get triaged",
+       "kind": "async"
+      },
+      {
+       "from": "dedupe-agent",
+       "to": "egress-firewall",
+       "label": "runs behind",
+       "kind": ""
+      },
+      {
+       "from": "dedupe-agent",
+       "to": "gh-toolkit",
+       "label": "searches issues, posts comment through",
+       "kind": "data"
+      },
+      {
+       "from": "dedupe-agent",
+       "to": "../outside-services",
+       "label": "asks Claude API to find duplicates",
+       "kind": "data"
+      },
+      {
+       "from": "dedupe-agent",
+       "to": "event-logging",
+       "label": "logs a completion event",
+       "kind": "async"
+      },
+      {
+       "from": "../end-user",
+       "to": "dedupe-agent",
+       "label": "opens issues that get checked",
+       "kind": "async"
+      },
+      {
+       "from": "gh-toolkit",
+       "to": "../outside-services",
+       "label": "reads/writes issues via GitHub API",
+       "kind": "data"
+      },
+      {
+       "from": "egress-firewall",
+       "to": "../outside-services",
+       "label": "allows calls to Claude + GitHub APIs",
+       "kind": "data"
+      },
+      {
+       "from": "dup-cleanup",
+       "to": "dedupe-agent",
+       "label": "closes issues after its unanswered comment",
+       "kind": ""
+      },
+      {
+       "from": "../developer",
+       "to": "ci-guardrails",
+       "label": "adds workflows that must pass",
+       "kind": ""
+      },
+      {
+       "from": "../outside-services",
+       "to": "event-logging",
+       "label": "fires issue opened/closed events",
+       "kind": "async"
+      },
+      {
+       "from": "../end-user",
+       "to": "lifecycle-engine",
+       "label": "a reply removes the pending autoclose",
+       "kind": "async"
+      },
+      {
+       "from": "lifecycle-engine",
+       "to": "lifecycle-rules",
+       "label": "reads label timeouts and messages",
+       "kind": "data"
+      }
+     ],
+     "flows": [
+      {
+       "id": "claude-mention-flow",
+       "name": "What happens when someone writes @claude",
+       "summary": "A comment, review, or issue containing \"@claude\" triggers Claude Code to read the thread and respond, inside the firewalled runner.",
+       "steps": [
+        {
+         "from": "../end-user",
+         "to": "claude-responder",
+         "text": "Posts a comment, review, or opens an issue containing \"@claude\"."
+        },
+        {
+         "node": "claude-responder",
+         "text": "GitHub Actions starts the job on the egress-firewall runner and exchanges its OIDC token for a short-lived Claude API token."
+        },
+        {
+         "from": "claude-responder",
+         "to": "egress-firewall",
+         "text": "Its outbound calls are capped to the allowed hosts."
+        },
+        {
+         "from": "claude-responder",
+         "to": "../outside-services",
+         "text": "Claude Code reads the thread and posts a reply or edit, with --permission-mode auto backing any out-of-scope tool call."
+        }
+       ]
+      },
+      {
+       "id": "new-issue-flow",
+       "name": "What happens when a new issue is opened",
+       "summary": "A freshly opened issue is triaged for labels and checked for duplicates at the same time, both through the same restricted GitHub scripts.",
+       "steps": [
+        {
+         "from": "../end-user",
+         "to": "issue-triage",
+         "text": "Opens a new issue."
+        },
+        {
+         "node": "issue-triage",
+         "text": "Claude Code reads the issue and label list only through gh.sh, then applies labels through edit-issue-labels.sh."
+        },
+        {
+         "from": "issue-triage",
+         "to": "gh-toolkit",
+         "text": "All reads and label edits are routed through the whitelisted scripts."
+        },
+        {
+         "from": "../end-user",
+         "to": "dedupe-agent",
+         "text": "The same \"issues opened\" event also starts the duplicate finder."
+        },
+        {
+         "node": "dedupe-agent",
+         "text": "Five parallel search agents look for duplicates; surviving matches get one comment linking up to 3 issues."
+        },
+        {
+         "from": "dedupe-agent",
+         "to": "dup-cleanup",
+         "text": "If nobody objects within 3 days, the daily sweep closes the issue as a duplicate."
+        }
+       ]
+      },
+      {
+       "id": "lifecycle-flow",
+       "name": "What happens when an issue goes quiet",
+       "summary": "An inactive issue is escalated through labels on a timer and nudged at each step, unless a reply resets the clock.",
+       "steps": [
+        {
+         "node": "lifecycle-engine",
+         "text": "Twice a day the sweep checks every open issue's current label against its timeout, and a nested job posts a nudge comment whenever a label is newly applied."
+        },
+        {
+         "from": "lifecycle-engine",
+         "to": "lifecycle-rules",
+         "text": "Looks up each label's timeout in days and its nudge message."
+        },
+        {
+         "from": "../end-user",
+         "to": "lifecycle-engine",
+         "text": "A reply at any point strips the autoclose label and resets the clock."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "developer",
+    "label": "Anthropic maintainer",
+    "kind": "person",
+    "summary": "Writes and reviews the mods, plugins, examples, and workflow code, and merges PRs."
+   },
+   {
+    "id": "end-user",
+    "label": "Claude Code user",
+    "kind": "person",
+    "summary": "Installs the CLI and, optionally, plugins and fleet-wide settings from this repo."
+   },
+   {
+    "id": "outside-services",
+    "label": "GitHub & Claude API",
+    "kind": "external",
+    "summary": "GitHub fires the webhook events repo-automation reacts to; the Claude API is what actually answers @claude.",
+    "details": "Two distinct outside services sharing one node because both are used only by Repo automation: GitHub (issues, PRs, comments) as the event source and write target, and api.anthropic.com as the model repo-automation calls."
+   }
+  ],
+  "edges": [
+   {
+    "from": "end-user",
+    "to": "cli-binary",
+    "label": "installs and runs"
+   },
+   {
+    "from": "cli-binary",
+    "to": "mods",
+    "label": "loads on every session"
+   },
+   {
+    "from": "cli-binary",
+    "to": "plugins",
+    "label": "loads if installed"
+   },
+   {
+    "from": "end-user",
+    "to": "plugins",
+    "label": "installs via /plugin"
+   },
+   {
+    "from": "end-user",
+    "to": "examples",
+    "label": "adapts and deploys to a fleet"
+   },
+   {
+    "from": "examples",
+    "to": "cli-binary",
+    "label": "sets permissions/policy fleet-wide"
+   },
+   {
+    "from": "developer",
+    "to": "mods",
+    "label": "writes and tests hooks"
+   },
+   {
+    "from": "mods",
+    "to": "cli-binary",
+    "label": "ships compiled into the next release"
+   },
+   {
+    "from": "developer",
+    "to": "plugins",
+    "label": "writes and documents"
+   },
+   {
+    "from": "developer",
+    "to": "examples",
+    "label": "writes templates"
+   },
+   {
+    "from": "developer",
+    "to": "repo-automation",
+    "label": "edits workflows, merges PRs"
+   },
+   {
+    "from": "outside-services",
+    "to": "repo-automation",
+    "label": "fires workflow on @claude",
+    "kind": "async"
+   },
+   {
+    "from": "repo-automation",
+    "to": "outside-services",
+    "label": "calls Claude API, posts replies",
+    "kind": "data"
+   }
+  ],
+  "flows": [
+   {
+    "id": "terminal-session",
+    "name": "What happens when someone runs claude",
+    "summary": "A session starts, built-in mods load automatically, and any installed plugin extends it.",
+    "steps": [
+     {
+      "from": "end-user",
+      "to": "cli-binary",
+      "text": "runs claude in a project directory"
+     },
+     {
+      "from": "cli-binary",
+      "to": "mods",
+      "text": "the four built-in hook mods load automatically"
+     },
+     {
+      "from": "cli-binary",
+      "to": "plugins",
+      "text": "any plugin the user installed also hooks into the session"
+     }
+    ]
+   },
+   {
+    "id": "claude-mention-triage",
+    "name": "What happens when someone writes @claude on an issue or PR",
+    "summary": "GitHub fires a workflow that runs Claude Code itself, behind an egress firewall, to answer and act.",
+    "steps": [
+     {
+      "from": "outside-services",
+      "to": "repo-automation",
+      "text": "an issue comment, review, or PR comment containing @claude fires claude.yml"
+     },
+     {
+      "node": "repo-automation",
+      "text": "runs on the egress-firewall runner with --permission-mode auto"
+     },
+     {
+      "from": "repo-automation",
+      "to": "outside-services",
+      "text": "calls the Claude API via workload identity federation"
+     },
+     {
+      "from": "repo-automation",
+      "to": "outside-services",
+      "text": "posts Claude's reply back to the issue or PR"
+     }
+    ]
+   },
+   {
+    "id": "fleet-deployment",
+    "name": "What happens when an organization deploys Claude Code to a fleet",
+    "summary": "An admin adapts the repo's MDM, settings, or gateway templates and rolls them out org-wide.",
+    "steps": [
+     {
+      "from": "developer",
+      "to": "examples",
+      "text": "writes or updates an MDM profile, settings template, or gateway config"
+     },
+     {
+      "from": "end-user",
+      "to": "examples",
+      "text": "an org admin copies and adapts the template"
+     },
+     {
+      "from": "examples",
+      "to": "cli-binary",
+      "text": "the deployed settings fix permissions, hosts, and policy on every managed session"
+     }
+    ]
+   },
+   {
+    "id": "mod-release",
+    "name": "What happens when a built-in mod changes",
+    "summary": "A developer edits a mod's hooks, tests it in isolation, and the next CLI release ships the compiled result.",
+    "steps": [
+     {
+      "from": "developer",
+      "to": "mods",
+      "text": "edits a hook module's TypeScript source"
+     },
+     {
+      "node": "mods",
+      "text": "claude plugin test runs it against a mocked engine, not a real session"
+     },
+     {
+      "from": "mods",
+      "to": "cli-binary",
+      "text": "the compiled mod ships inside the next Claude Code release"
+     }
+    ]
+   }
+  ]
+ },
+ "source": "https://github.com/anthropics/claude-code",
+ "generated": "2026-10-04 12:15",
+ "generator": "ai",
+ "commit": "2bfb629dfaff0c8318047a4beb93cf1dc5b58b18",
+ "coverage": "Mapped from the repository's contents only. User-level settings, connectors (MCP servers configured outside the repo), scheduled jobs, and secrets usually live outside a repository, so they are not visible here.",
+ "tool": {
+  "name": "Exploded View",
+  "version": "0.2.0",
+  "url": "https://github.com/tmedia-csb/exploded-view"
+ },
+ "repo_url": "https://github.com/anthropics/claude-code"
+}

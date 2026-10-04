@@ -1,0 +1,446 @@
+{
+ "title": "Exploded View",
+ "summary": "A Claude Code plugin that maps a codebase or an agent harness into an interactive HTML diagram. A Python engine clones, scans, merges, and renders, while the user's own Claude Code session and its subagents write the map itself.",
+ "root": {
+  "direction": "RIGHT",
+  "nodes": [
+   {
+    "id": "user",
+    "label": "User",
+    "kind": "person",
+    "summary": "Runs `/exploded-view:map` on a GitHub URL or a local folder, then reads the map in a browser."
+   },
+   {
+    "id": "skill",
+    "label": "Map skill",
+    "kind": "skill",
+    "summary": "The instructions Claude Code loads for the command: prepare, write the top level, dispatch drill-ins, merge.",
+    "details": "- Holds the context-discipline rule: the main session reads only the overview prompt, a few repo files, and short engine output.\n- Names the engine with `${CLAUDE_PLUGIN_ROOT}`, which Claude Code substitutes when it loads the skill.\n- Points to a troubleshooting reference read only when a step fails.",
+    "files": [
+     "skills/map/SKILL.md",
+     "skills/map/reference/troubleshooting.md"
+    ]
+   },
+   {
+    "id": "main-session",
+    "label": "Main session",
+    "kind": "agent",
+    "summary": "The user's Claude Code session: reads the digest and key files, writes the top level, coordinates drill-ins."
+   },
+   {
+    "id": "writers",
+    "label": "Drill-in writers",
+    "kind": "agent",
+    "summary": "One subagent per large part, run in parallel; each reads its scope and writes that part's inside.",
+    "details": "Each writer gets a prompt file with the rules, the schema, its place in the map, its siblings, and a digest limited to its scope. It may nest small sub-parts directly and give big ones a scope for the next wave. It replies with one line."
+   },
+   {
+    "id": "engine",
+    "label": "Engine",
+    "kind": "process",
+    "summary": "Stdlib Python script that resolves, scans, writes prompts, checks parts, merges, sanitises, and renders.",
+    "files": [
+     "engine/explodedview.py"
+    ],
+    "children": {
+     "direction": "RIGHT",
+     "nodes": [
+      {
+       "id": "resolver",
+       "label": "Target resolver",
+       "kind": "module",
+       "summary": "Turns a URL, owner/repo, or path into a folder to scan, cloning remote repos into a cache.",
+       "details": "GitHub `/tree/<branch>/<folder>` links are split against the remote's real refs. HTTPS is tried before SSH, with git prompts turned off, so private repos use the user's existing credentials.",
+       "files": [
+        "engine/explodedview.py"
+       ]
+      },
+      {
+       "id": "scanner",
+       "label": "Scanner",
+       "kind": "module",
+       "summary": "Lists tracked files, pulls one-line summaries, resolves imports and links, and detects harness parts.",
+       "details": "Outside-repo config (user-level hooks, untracked MCP config, launchd jobs) is read only for local folders and labelled as this machine's config.",
+       "files": [
+        "engine/explodedview.py"
+       ]
+      },
+      {
+       "id": "prompts",
+       "label": "Digest and prompts",
+       "kind": "module",
+       "summary": "Writes the capped digest and the overview, one-pass, and drill-in prompts with the modelling rules.",
+       "files": [
+        "engine/explodedview.py"
+       ]
+      },
+      {
+       "id": "assembler",
+       "label": "Part assembler",
+       "kind": "module",
+       "summary": "Joins the overview and written parts, lists pending drill-ins, and checks one part against its ancestors.",
+       "details": "Parts are cached by commit. `next` caps the run at the agent budget, largest parts first, and gives up on a drill-in after two tries.",
+       "files": [
+        "engine/explodedview.py"
+       ]
+      },
+      {
+       "id": "merge",
+       "label": "Merge and sanitise",
+       "kind": "module",
+       "summary": "Assembles the final map, strips secrets and local paths, adds source and coverage, and validates.",
+       "files": [
+        "engine/explodedview.py"
+       ]
+      },
+      {
+       "id": "renderer",
+       "label": "Renderer",
+       "kind": "module",
+       "summary": "Inlines the map data and the layout engine into the viewer template to make one HTML file.",
+       "files": [
+        "engine/explodedview.py",
+        "engine/viewer.html"
+       ]
+      },
+      {
+       "id": "static",
+       "label": "Static mapper",
+       "kind": "module",
+       "summary": "Builds a map from folders, imports, and links alone, for use without any AI.",
+       "files": [
+        "engine/explodedview.py"
+       ]
+      }
+     ],
+     "edges": [
+      {
+       "from": "resolver",
+       "to": "scanner",
+       "label": "hands over folder"
+      },
+      {
+       "from": "scanner",
+       "to": "prompts",
+       "label": "files and references",
+       "kind": "data"
+      },
+      {
+       "from": "scanner",
+       "to": "static",
+       "label": "feeds",
+       "kind": "data"
+      },
+      {
+       "from": "assembler",
+       "to": "prompts",
+       "label": "asks for drill-in prompts"
+      },
+      {
+       "from": "merge",
+       "to": "assembler",
+       "label": "reuses assembly"
+      },
+      {
+       "from": "merge",
+       "to": "renderer",
+       "label": "final map",
+       "kind": "data"
+      },
+      {
+       "from": "static",
+       "to": "renderer",
+       "label": "static map",
+       "kind": "data"
+      },
+      {
+       "from": "resolver",
+       "to": "../git",
+       "label": "shallow fetch"
+      },
+      {
+       "from": "prompts",
+       "to": "../output",
+       "label": "writes digest, prompts",
+       "kind": "data"
+      },
+      {
+       "from": "renderer",
+       "to": "../output",
+       "label": "writes index.html",
+       "kind": "data"
+      }
+     ],
+     "flows": [
+      {
+       "id": "prepare",
+       "name": "What `prepare` does",
+       "summary": "From a target string to a ready overview prompt.",
+       "steps": [
+        {
+         "node": "resolver",
+         "text": "Recognises the target and clones it if it is remote, recording the commit."
+        },
+        {
+         "from": "resolver",
+         "to": "scanner",
+         "text": "The scanner walks the files git tracks and resolves references between them."
+        },
+        {
+         "from": "scanner",
+         "to": "prompts",
+         "text": "The digest is written with size caps, and the overview prompt wraps it in the rules and schema."
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "git",
+    "label": "git",
+    "kind": "external",
+    "summary": "The user's own git, which clones remote repos with whatever credentials already work for them."
+   },
+   {
+    "id": "output",
+    "label": "Map folder",
+    "kind": "data",
+    "summary": "`~/exploded-view/<name>/`: job, digest, prompts, parts cached by commit, map.json, and index.html.",
+    "details": "Share `index.html`. The working files contain local paths and stay on the machine."
+   },
+   {
+    "id": "viewer",
+    "label": "Viewer",
+    "kind": "ui",
+    "summary": "The single-file HTML map: layout, drill-down, workflow playback, details, and search.",
+    "files": [
+     "engine/viewer.html",
+     "engine/vendor/elk.bundled.js"
+    ],
+    "children": {
+     "nodes": [
+      {
+       "id": "layout",
+       "label": "Auto layout",
+       "kind": "module",
+       "summary": "Lays out each level with ELK, trying left-to-right and top-down and keeping the more readable result.",
+       "files": [
+        "engine/vendor/elk.bundled.js",
+        "engine/vendor/NOTICE.md"
+       ]
+      },
+      {
+       "id": "navigation",
+       "label": "Drill-down navigation",
+       "kind": "ui",
+       "summary": "Opens stacked cards, shows outside neighbours as dashed cards, and keeps the place in the URL."
+      },
+      {
+       "id": "player",
+       "label": "Workflow player",
+       "kind": "ui",
+       "summary": "Plays a flow hop by hop with numbered badges and a pulse along each connection."
+      },
+      {
+       "id": "panel",
+       "label": "Details and search",
+       "kind": "ui",
+       "summary": "Shows a part's details, connections, and key files (linked to GitHub), and searches every level."
+      },
+      {
+       "id": "source",
+       "label": "Source section",
+       "kind": "ui",
+       "summary": "Shows where the map came from, the commit, and what a cloned repo could not reveal."
+      }
+     ],
+     "edges": [
+      {
+       "from": "layout",
+       "to": "navigation",
+       "label": "positions each level"
+      },
+      {
+       "from": "navigation",
+       "to": "player",
+       "label": "hosts playback"
+      },
+      {
+       "from": "navigation",
+       "to": "panel",
+       "label": "opens on click"
+      },
+      {
+       "from": "source",
+       "to": "panel",
+       "label": "same commit links"
+      }
+     ]
+    }
+   },
+   {
+    "id": "manifest",
+    "label": "Plugin manifest",
+    "kind": "config",
+    "summary": "Tells Claude Code the plugin's name and lets users add this repo as a marketplace.",
+    "files": [
+     ".claude-plugin/plugin.json",
+     ".claude-plugin/marketplace.json"
+    ]
+   }
+  ],
+  "edges": [
+   {
+    "from": "user",
+    "to": "skill",
+    "label": "runs the command"
+   },
+   {
+    "from": "manifest",
+    "to": "skill",
+    "label": "registers"
+   },
+   {
+    "from": "skill",
+    "to": "main-session",
+    "label": "instructs"
+   },
+   {
+    "from": "main-session",
+    "to": "engine",
+    "label": "runs commands"
+   },
+   {
+    "from": "main-session",
+    "to": "writers",
+    "label": "dispatches in parallel",
+    "kind": "async"
+   },
+   {
+    "from": "engine",
+    "to": "git",
+    "label": "clones remote repos"
+   },
+   {
+    "from": "engine",
+    "to": "output",
+    "label": "writes",
+    "kind": "data"
+   },
+   {
+    "from": "main-session",
+    "to": "output",
+    "label": "writes the top level",
+    "kind": "data"
+   },
+   {
+    "from": "writers",
+    "to": "output",
+    "label": "write drill-ins",
+    "kind": "data"
+   },
+   {
+    "from": "output",
+    "to": "viewer",
+    "label": "index.html",
+    "kind": "data"
+   },
+   {
+    "from": "user",
+    "to": "viewer",
+    "label": "opens and explores"
+   }
+  ],
+  "flows": [
+   {
+    "id": "map-a-repo",
+    "name": "Mapping a repo",
+    "summary": "What happens between typing the command and the map opening.",
+    "steps": [
+     {
+      "from": "user",
+      "to": "skill",
+      "text": "The user runs `/exploded-view:map <target>` and Claude Code loads the skill."
+     },
+     {
+      "from": "main-session",
+      "to": "engine",
+      "text": "`prepare` resolves the target, clones it if needed, scans it, and writes the overview prompt."
+     },
+     {
+      "from": "main-session",
+      "to": "output",
+      "text": "The session reads that prompt and a few key files, writes the top level, and checks it."
+     },
+     {
+      "from": "main-session",
+      "to": "writers",
+      "text": "For each part `next` lists, a subagent writes its inside; deeper parts follow in the next wave."
+     },
+     {
+      "from": "main-session",
+      "to": "engine",
+      "text": "`merge` assembles the parts, removes secrets and local paths, validates, and renders."
+     },
+     {
+      "from": "output",
+      "to": "viewer",
+      "text": "The single HTML file opens in the browser."
+     }
+    ]
+   },
+   {
+    "id": "context-bound",
+    "name": "Keeping the session's context small",
+    "summary": "Why a large repo doesn't fill the user's conversation.",
+    "steps": [
+     {
+      "node": "engine",
+      "text": "The digest is capped: content-heavy folders fold into one line, lockfiles drop out, and file and reference lists have limits."
+     },
+     {
+      "from": "main-session",
+      "to": "writers",
+      "text": "Drill-ins happen in subagents, which reply with one line each."
+     },
+     {
+      "from": "engine",
+      "to": "main-session",
+      "text": "Only short summaries come back: a pending list, check results, and the merge counts. The merged map is never read back."
+     }
+    ]
+   },
+   {
+    "id": "rerun",
+    "name": "Re-running on the same commit",
+    "summary": "How a second run reuses finished work.",
+    "steps": [
+     {
+      "from": "main-session",
+      "to": "engine",
+      "text": "`prepare` finds the same commit and reports the overview as cached."
+     },
+     {
+      "from": "engine",
+      "to": "output",
+      "text": "Parts live under the commit's folder, so `next` lists only what is still missing."
+     },
+     {
+      "from": "main-session",
+      "to": "engine",
+      "text": "`merge` renders straight away if nothing is missing."
+     }
+    ]
+   }
+  ]
+ },
+ "source": "https://github.com/tmedia-csb/exploded-view",
+ "generated": "2026-10-04 11:52",
+ "generator": "ai",
+ "tool": {
+  "name": "Exploded View",
+  "version": "0.2.0",
+  "url": "https://github.com/tmedia-csb/exploded-view"
+ }
+}

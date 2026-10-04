@@ -1,0 +1,12 @@
+{
+  "name": "exploded-view",
+  "description": "Exploded View: interactive maps of how a codebase or agent harness works.",
+  "owner": { "name": "Scott Blevins", "url": "https://github.com/tmedia-csb" },
+  "plugins": [
+    {
+      "name": "exploded-view",
+      "source": "./",
+      "description": "Map a codebase or an agent harness into an interactive HTML diagram of how it works."
+    }
+  ]
+}
