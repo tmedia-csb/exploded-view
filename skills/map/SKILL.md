@@ -28,7 +28,9 @@ Your context has to stay the same size whether the repo has 50 files or 50,000. 
 
 ## 1. Prepare
 
-Run `EV prepare "<target>"`, passing through any of these the user gave: `--depth N` (drill-in levels below the top; default 2), `--max-agents N` (cap on drill-in subagents; default 30), `--fresh` (ignore cached parts), `--two-pass` (use drill-in subagents even for a small repo). If no target was given, map the current working directory and say so.
+If no target was given, don't start mapping. A run starts several subagents and takes minutes, so ask first: what should be mapped, a GitHub URL or `owner/repo`, or the current folder (name it)? Wait for the answer, then continue with it.
+
+Run `EV prepare "<target>"`, passing through any of these the user gave: `--depth N` (drill-in levels below the top; default 2), `--max-agents N` (cap on drill-in subagents; default 30), `--fresh` (ignore cached parts), `--two-pass` (use drill-in subagents even for a small repo).
 
 The target can be a GitHub URL (including `/tree/<branch>/<folder>` links), `owner/repo`, any git URL, or a local path. Remote repos are shallow-cloned with the user's own git, so private repos work wherever their credentials do. If the clone fails, show the error and suggest checking that `git clone <url>` works in their terminal. Don't try to work around authentication.
 

@@ -38,7 +38,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 NAME = "Exploded View"
 HOMEPAGE = "https://github.com/tmedia-csb/exploded-view"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "exploded-view"

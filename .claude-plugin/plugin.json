@@ -1,7 +1,7 @@
 {
   "name": "exploded-view",
   "displayName": "Exploded View",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Map a codebase or an agent harness into an interactive HTML diagram of how it works: drill-down parts, connections, and workflows you can play step by step. Your own Claude Code session writes the map; nothing is hosted.",
   "author": {
     "name": "Scott Blevins",

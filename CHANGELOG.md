@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (2026-10-04)
+
+- Running `/exploded-view:map` with no target now asks what to map (a GitHub repo or the current folder) instead of starting a full run on the current folder. A run starts several subagents and takes minutes, so it shouldn't begin by accident.
+
 ## 0.2.0 (2026-10-04)
 
 First release as a Claude Code plugin.
